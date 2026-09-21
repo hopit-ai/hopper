@@ -1,0 +1,26 @@
+Hopper
+Copyright 2026 The Hopper authors
+
+This repository (code) and the Hopper LoRA adapter weights are licensed under the
+Apache License, Version 2.0 (see LICENSE).
+
+Base model
+  The adapter is trained on, and only runs with, Qwen/Qwen3.5-4B
+  (https://huggingface.co/Qwen/Qwen3.5-4B, revision 851bf6e806efd8d0a36b00ddf55e13ccb7b8cd0a),
+  Copyright Alibaba Cloud, licensed under the Apache License, Version 2.0:
+  https://huggingface.co/Qwen/Qwen3.5-4B/blob/main/LICENSE
+  The base model's weights are not included here; they are downloaded from the Hugging Face Hub.
+
+Prompt layout
+  The JSON prompt layout in hopper_decisions/prompt.py re-implements the layout of SemIf's
+  core.direct_messages (https://github.com/TheoLeeCJ/SemIf, MIT, Copyright (c) 2026 TheoLeeCJ).
+  No SemIf code is copied.
+
+JevBench
+  hopper_decisions/speed.py restates the Speed formula of JevBench
+  (https://github.com/fstandhartinger/jevbench, MIT, Copyright (c) 2026 Florian Standhartinger
+  and contributors). No JevBench item is included in this repository or in the training data.
+
+Training data
+  The adapter's training data includes examples derived from the public datasets listed in
+  MODEL_CARD.md ("Training data"), each used under its own licence as stated there.

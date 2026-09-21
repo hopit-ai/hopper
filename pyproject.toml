@@ -1,0 +1,32 @@
+[project]
+name = "hopper-decisions"
+version = "1.0.0"
+description = "Hopper: a JevBench decision server, Qwen/Qwen3.5-4B + a LoRA adapter, one forward pass per decision."
+readme = "README.md"
+license = "Apache-2.0"
+license-files = ["LICENSE", "NOTICE"]
+requires-python = ">=3.12"
+# Exactly the versions that passed on RunPod (H100 NVL, RTX PRO 4500 Blackwell) and in Docker (A10G).
+# causal-conv1d has no usable PyPI wheel for this stack; install it from the pinned wheel URL in
+# the README (the Dockerfile does), or the server refuses to start.
+dependencies = ["torch==2.8.0", "transformers==5.17.0", "peft==0.21.0", "accelerate==1.15.0",
+                "flash-linear-attention==0.5.2"]
+
+[project.optional-dependencies]
+test = ["pytest>=8"]
+
+[project.scripts]
+hopper-serve = "hopper_decisions.server:main"
+
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+packages = ["hopper_decisions"]
+
+[tool.setuptools.package-data]
+hopper_decisions = ["maps/*.json"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

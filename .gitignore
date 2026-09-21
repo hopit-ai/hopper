@@ -1,0 +1,10 @@
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+.venv*/
+.pytest_cache/
+# Adapter weights are published on the Hugging Face Hub and as a GitHub release asset, never in git.
+*.safetensors
+*.bin
