@@ -2,9 +2,9 @@
 
 from pathlib import Path
 
-# HF_ORG is a placeholder until the adapter is published on the Hugging Face Hub.
+# HopitAI is a placeholder until the adapter is published on the Hugging Face Hub.
 NAME = "hopper"               # the `model` field of every reply
-HF_REPO = "HF_ORG/hopper"     # the adapter on the Hugging Face Hub
+HF_REPO = "HopitAI/hopper"     # the adapter on the Hugging Face Hub
 MAP = Path(__file__).parent / "maps" / f"{NAME}.json"
 
 

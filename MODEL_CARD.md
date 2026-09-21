@@ -76,7 +76,7 @@ The easiest way to serve it is with the package (`pip install` the code reposito
 
 ```python
 from hopper_decisions import Decider
-decider = Decider(adapter="HF_ORG/hopper")      # the packaged calibration map is the default
+decider = Decider(adapter="HopitAI/hopper")      # the packaged calibration map is the default
 decider.decide({"state": "The customer wants a refund for order 12.",
                 "questions": {"decision": {"type": "choice", "instructions": "Route the ticket.",
                                            "criteria": {"refund": "money back", "track": "where is it"}}}})
@@ -92,7 +92,7 @@ from peft import PeftModel
 base, revision = "Qwen/Qwen3.5-4B", "851bf6e806efd8d0a36b00ddf55e13ccb7b8cd0a"
 tokenizer = AutoTokenizer.from_pretrained(base, revision=revision)
 model = AutoModelForCausalLM.from_pretrained(base, revision=revision, dtype=torch.bfloat16, device_map="cuda")
-model = PeftModel.from_pretrained(model, "HF_ORG/hopper").merge_and_unload().eval()
+model = PeftModel.from_pretrained(model, "HopitAI/hopper").merge_and_unload().eval()
 
 messages = [{"role": "system", "content": SYSTEM}, {"role": "user", "content": user_json}]   # as above
 ids = tokenizer.apply_chat_template(messages, add_generation_prompt=True, enable_thinking=False, return_tensors="pt")

@@ -23,6 +23,6 @@ COPY hopper_decisions ./hopper_decisions
 RUN pip install --no-cache-dir --no-deps .
 
 # ADAPTER is a Hugging Face repo id or a mounted directory; the calibration map ships in the package.
-ENV ADAPTER=HF_ORG/hopper NAME=hopper
+ENV ADAPTER=HopitAI/hopper NAME=hopper
 EXPOSE 8080
 CMD ["sh", "-c", "exec hopper-serve --adapter \"$ADAPTER\" --name \"$NAME\" --port 8080"]

@@ -14,7 +14,7 @@ Code and adapter weights: Apache-2.0, the same licence as the base model. See `L
 
 ## The adapter
 
-- Hugging Face: [`HF_ORG/hopper`](https://huggingface.co/HF_ORG/hopper). The server downloads it
+- Hugging Face: [`HopitAI/hopper`](https://huggingface.co/HopitAI/hopper). The server downloads it
   on first start.
 - Or the GitHub release `v1.0.0` of this repository, which has the same files and a `CHECKSUMS.txt`:
 
@@ -37,7 +37,7 @@ CUDA 12.8 or newer.
 git clone https://github.com/hopit-ai/hopper && cd hopper && git checkout v1.0.0
 uv pip install --system --break-system-packages torch==2.8.0 transformers==5.17.0 peft==0.21.0 accelerate==1.15.0 flash-linear-attention==0.5.2 "https://github.com/Dao-AILab/causal-conv1d/releases/download/v1.7.0/causal_conv1d-1.7.0%2Bcu12torch2.8cxx11abiTRUE-cp312-cp312-linux_x86_64.whl"
 uv pip install --system --break-system-packages --no-deps -e .
-hopper-serve --adapter HF_ORG/hopper --port 8080
+hopper-serve --adapter HopitAI/hopper --port 8080
 ```
 
 On any other Linux host with Python 3.12 and a CUDA 12.8+ driver, run the same two installs with
