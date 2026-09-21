@@ -2,7 +2,6 @@
 
 from pathlib import Path
 
-# HopitAI is a placeholder until the adapter is published on the Hugging Face Hub.
 NAME = "hopper"               # the `model` field of every reply
 HF_REPO = "HopitAI/hopper"     # the adapter on the Hugging Face Hub
 MAP = Path(__file__).parent / "maps" / f"{NAME}.json"
