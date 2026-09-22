@@ -5,7 +5,8 @@ A JevBench decision server. Hopper is a LoRA adapter on
 `851bf6e806efd8d0a36b00ddf55e13ccb7b8cd0a`, merged into the bf16 weights at load. Each decision
 takes one forward pass, with thinking off. The answer is read as a softmax over the option letters
 (no text is generated), and a small calibration map, shipped in the package, then rescales that
-distribution. The map never changes an answer.
+distribution by one temperature per answer type (choice 0.790, noul 0.753, score 0.900). The map
+never changes an answer.
 
 The server speaks the JevBench `/v1/systemone` wire format, so the harness's existing `typesafe`
 adapter runs unchanged. It also answers `remote_inproc`'s `POST /run`.
@@ -16,16 +17,21 @@ Code and adapter weights: Apache-2.0, the same licence as the base model. See `L
 
 - Hugging Face: [`HopitAI/hopper`](https://huggingface.co/HopitAI/hopper). The server downloads it
   on first start.
-- Or the GitHub release `v1.0.0` of this repository, which has the same files and a `CHECKSUMS.txt`:
+- Or the GitHub release `v1.1.0` of this repository, which has the same files and a `CHECKSUMS.txt`:
 
   ```sh
-  gh release download v1.0.0 -R hopit-ai/hopper -D hopper-adapter
+  gh release download v1.1.0 -R hopit-ai/hopper -D hopper-adapter
   (cd hopper-adapter && shasum -a 256 -c CHECKSUMS.txt)
   hopper-serve --adapter ./hopper-adapter --port 8080
   ```
 
 The adapter is `adapter_config.json` and `adapter_model.safetensors` (rank 16, 130 MB).
 `hopper.json` is the calibration map, and the same file ships inside the package.
+
+The adapter weights are identical in 1.0.0 and 1.1.0; only the calibration map changed (see
+`CHANGELOG.md`). The 1.0.0 map is kept in the package as
+`hopper_decisions/maps/hopper-v1.0-linear.json`, so 1.0.0 can still be reproduced from this
+repository by passing it to `hopper-serve --map`.
 
 ## Install and serve (RunPod, as tested)
 
@@ -34,7 +40,7 @@ template: Ubuntu 24.04, Python 3.12, CUDA 12.8.1, torch 2.8.0+cu128, `uv`). Blac
 CUDA 12.8 or newer.
 
 ```sh
-git clone https://github.com/hopit-ai/hopper && cd hopper && git checkout v1.0.0
+git clone https://github.com/hopit-ai/hopper && cd hopper && git checkout v1.1.0
 uv pip install --system --break-system-packages torch==2.8.0 transformers==5.17.0 peft==0.21.0 accelerate==1.15.0 flash-linear-attention==0.5.2 "https://github.com/Dao-AILab/causal-conv1d/releases/download/v1.7.0/causal_conv1d-1.7.0%2Bcu12torch2.8cxx11abiTRUE-cp312-cp312-linux_x86_64.whl"
 uv pip install --system --break-system-packages --no-deps -e .
 hopper-serve --adapter HopitAI/hopper --port 8080
@@ -73,8 +79,14 @@ The harness can also import Hopper instead of posting to it, the way its `semif_
 works. Same weights, same calibration map, same forward pass, same answers — the HTTP hop is simply
 gone.
 
+There is no PyPI release: install the package from a clone, exactly as the recipe above does, and
+then apply the patch to the harness.
+
 ```sh
-pip install hopper-decisions          # or, from a clone of this repository: pip install -e .
+git clone https://github.com/hopit-ai/hopper && cd hopper && git checkout v1.1.0
+uv pip install --system --break-system-packages torch==2.8.0 transformers==5.17.0 peft==0.21.0 accelerate==1.15.0 flash-linear-attention==0.5.2 "https://github.com/Dao-AILab/causal-conv1d/releases/download/v1.7.0/causal_conv1d-1.7.0%2Bcu12torch2.8cxx11abiTRUE-cp312-cp312-linux_x86_64.whl"
+uv pip install --system --break-system-packages --no-deps -e .
+
 cd <jevbench> && git checkout v1.3.0
 git apply <hopper>/jevbench_patch/hopper_direct-v1.3.0.patch
 
@@ -108,6 +120,11 @@ answers identical to our evaluation — the same exact tie as in the table below
 replies and no failures, and the probabilities identical to the served ones. Over a localhost
 loopback the hop costs about a millisecond, so the gain here is small; how large it is on your own
 host is yours to measure.
+
+Re-measured with the 1.1.0 calibration map on a second A10G: same answers, same probabilities,
+same `model` and `usage` fields, no failures. That container was a uniformly slower host —
+standard-tier p50 / p95 67.3 / 71.5 ms in pass 1 and 63.7 / 65.5 in pass 2 — which is the box, not
+the map: post-processing, where the map is applied, is 0.03 ms per decision.
 
 The HTTP route above remains the primary one; this is the same system with one less hop.
 
@@ -157,3 +174,8 @@ the harness's 1e-3 tolerance.
 ```sh
 pip install -e ".[test]" && pytest     # no GPU, no network
 ```
+
+## Changes
+
+`CHANGELOG.md`. 1.1.0 adds the in-process route above and replaces the calibration map with one
+temperature per answer type; the adapter weights are unchanged from 1.0.0, and so is every answer.

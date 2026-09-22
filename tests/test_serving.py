@@ -157,12 +157,46 @@ def test_no_map_is_the_identity_and_answerable_maps_are_refused():
                                "means": [0, 0], "deviations": [1, 1]})
 
 
-def test_the_shipped_map_is_the_submitted_linear_map():
+PER_KIND = {"choice": 0.790, "noul": 0.753, "score": 0.900}   # the 1.1.0 map, to three digits
+
+
+def test_the_shipped_map_is_the_per_kind_map():
     assert MAP.name == f"{NAME}.json" and MAP.is_file()
     spec = json.loads(MAP.read_text())
-    assert set(spec) == {"kind", "bound", "names", "weights", "means", "deviations"}
+    assert set(spec) == {"kind", "temperatures", "fitted_on"}
+    assert spec["kind"] == "per_kind" and set(spec["temperatures"]) == {"choice", "noul", "score"}
+    for kind, temperature in PER_KIND.items():
+        assert spec["temperatures"][kind] == pytest.approx(temperature, abs=5e-4)
+    assert isinstance(calibration.read(MAP), PerKind)
+    # Provenance: our own fitting set, the 66 leakage-flagged items dropped, and no data file named.
+    assert spec["fitted_on"]["dropped_leakage_flagged"] == 66 and spec["fitted_on"]["tier"] == "hard"
+    assert ".jsonl" not in json.dumps(spec["fitted_on"])
+
+
+def test_the_v1_0_linear_map_still_ships_beside_it():
+    """1.0.0 stays reproducible from this package: same weights, the map it was measured with."""
+    old = MAP.parent / f"{NAME}-v1.0-linear.json"
+    assert old.is_file()
+    spec = json.loads(old.read_text())
     assert spec["kind"] == "linear" and spec["weights"][0] == pytest.approx(-0.19086, abs=1e-5)
-    assert isinstance(calibration.read(MAP), Linear)
+    assert isinstance(calibration.read(old), Linear)
+
+
+@pytest.mark.parametrize("kind", ["noul", "choice", "score"])
+def test_each_answer_type_gets_its_own_temperature(kind):
+    """The map reaches the answer type through a real request, and cannot move the answer."""
+    mapping = calibration.read(MAP)
+    example, _ = request.parse(systemone(task(kind)))
+    assert example["kind"] == kind
+    probs = {"noul": {"true": 0.62, "false": 0.38},
+             "choice": {"refund": 0.5, "track": 0.3, "other": 0.2},
+             "score": {"0": 0.2, "1": 0.3, "2": 0.5}}[kind]
+    exact = json.loads(MAP.read_text())["temperatures"][kind]
+    served = calibration.apply(mapping, example, probs)
+    assert served == pytest.approx(by_hand(probs, exact), abs=1e-12)
+    assert served == pytest.approx(by_hand(probs, PER_KIND[kind]), abs=1e-3)
+    assert max(served, key=served.get) == max(probs, key=probs.get)
+    assert math.isclose(sum(served.values()), 1.0)
 
 
 def test_speed_axis_matches_the_published_rows():

@@ -1,10 +1,12 @@
 """The calibration map, a small JSON file, and the arithmetic that applies it.
 
 Every map divides log-probabilities by a positive temperature (and optionally mixes in the uniform
-distribution), so no map can move an answer. The shipped map is `linear`: log T is a bounded
-linear function of what the request shows (log option count, log(1 + state length in words),
-JSON state or not, answer type, and the normalised entropy of the model's own distribution),
-squashed through BOUND * tanh so T stays in [1/3, 3].
+distribution), so no map can move an answer. Since 1.1.0 the shipped map is `per_kind`: one fitted
+temperature per answer type (`maps/hopper.json`). The 1.0.0 map is still in the package as
+`maps/hopper-v1.0-linear.json` — a `linear` map, where log T is a bounded linear function of what
+the request shows (log option count, log(1 + state length in words), JSON state or not, answer
+type, and the normalised entropy of the model's own distribution), squashed through BOUND * tanh
+so T stays in [1/3, 3]. Both forms are read and applied here.
 """
 
 from __future__ import annotations

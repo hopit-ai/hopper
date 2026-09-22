@@ -37,10 +37,16 @@ question go in, and a probability distribution over a fixed set of options comes
 - **One forward pass per decision**, with thinking off. No text is generated. The answer is a
   softmax over the logits of the option letters (A, B, C, ...), restricted to as many letters as
   there are options.
-- **A calibration map** (`hopper.json`) rescales that distribution by a temperature, T in
-  [1/3, 3]. T is a bounded linear function of what the request shows: the number of options, the
-  state length, whether the state is JSON, the answer type, and the entropy of the model's own
-  distribution. The map never changes the top answer.
+- **A calibration map** (`hopper.json`) rescales that distribution by one temperature per answer
+  type: choice 0.790, noul 0.753, score 0.900. It was fitted only on our own held-out
+  JevBench-style items, never on a JevBench item. The map never changes the top answer — it
+  divides log-probabilities by a positive number, which cannot reorder them.
+  (In 1.0.0 the map was instead a bounded linear function of option count, state length,
+  JSON-or-not, answer type and the entropy of the model's own distribution. A leave-one-source-out
+  ablation showed that map was worth +0.1 Calibration over no map at all on sources its fitting
+  set had never seen, against +4.5 and +2.9 for the per-answer-type map fitted on the same data,
+  so 1.1.0 replaced it. Answers are identical either way; only the confidences move. The old map
+  ships alongside as `hopper-v1.0-linear.json`.)
 - **Serving code**: [github.com/hopit-ai/hopper](https://github.com/hopit-ai/hopper). It runs an
   HTTP server with the JevBench `/v1/systemone` wire format. At load it merges the adapter into the
   bf16 weights, and it refuses to start if the fast linear-attention kernels are not active.
@@ -134,8 +140,8 @@ The adapter was trained on a mix of three sources:
 | [fancyzhx/dbpedia_14](https://huggingface.co/datasets/fancyzhx/dbpedia_14) | topic classification | CC BY-SA 3.0 |
 | [nvidia/HelpSteer2](https://huggingface.co/datasets/nvidia/HelpSteer2) | response-quality judgement | CC BY 4.0 |
 
-The calibration map was fitted only on our own held-out JevBench-style items. It never saw a
-JevBench item.
+The calibration map was fitted only on our own held-out JevBench-style items — the same fitting
+set in 1.1.0 as in 1.0.0, with the 66 leakage-flagged items dropped. It never saw a JevBench item.
 
 ## Evaluation
 
@@ -151,8 +157,19 @@ official.
 | standard (original) | 72 | 0.944 | 0.958 |
 | hard | 111 | 0.685 | 0.631 |
 
-On the hard tier, top-label ECE is 0.102. Distribution fidelity (1 − mean total-variation
-distance) on the 10 public probability items is 0.830.
+The accuracies above are the same in 1.1.0 as in 1.0.0: no calibration map can move an answer.
+
+On the hard tier, top-label ECE is 0.102, and distribution fidelity (1 − mean total-variation
+distance) on the 10 public probability items is 0.830. **Both were measured with the 1.0.0
+calibration map**, and we have not recomputed them for 1.1.0, because the reserved half of the
+public items may be scored only under the pre-registered rule and we will not spend it again on
+a map change. On the development half alone, computed on our saved predictions, replacing the
+1.0.0 map with the 1.1.0 one takes hard-tier ECE from 0.159 to 0.112 and the harness's Calibration
+axis from 76.5 to 79.4, with the top answers unchanged. Treat that as an estimate and not a
+promise: re-running the same 55 hard items through the server applies the identical map and lands
+at 76.0, because a binned ECE over 55 items is not stable to the bf16 differences between two runs
+of the same weights. The case for the map rests on a 517-item held-out set, where it is worth +4.5,
+not on this fold.
 
 **Disclosure.**
 - The public items were split in half before we started. The half we developed on (115 items)
@@ -165,7 +182,9 @@ distance) on the 10 public probability items is 0.830.
   chosen beforehand by a pre-registered rule. On it the adapter scores hard 0.661 (37 of 56) and
   the frozen base 0.643 (36 of 56): it is level with the frozen model on accuracy there, not ahead.
 - The calibration map was fitted only on our own held-out JevBench-style items, never on a
-  JevBench item.
+  JevBench item. The 1.1.0 map was fitted on exactly the same items as the 1.0.0 map; it was
+  chosen over it on out-of-pool folds of our own data, not on any JevBench score, and the
+  reserved half was not re-run for it.
 - No JevBench item or paraphrase was used in training. Every item we wrote was checked against
   all public JevBench questions and states (normalised question identity, and any shared 8-word
   sequence) and dropped on a match; the check reads only hashes and reports only counts.
@@ -181,7 +200,9 @@ distance) on the 10 public probability items is 0.830.
 - **Long documents that need several hops are weak.** Accuracy drops when the answer needs facts
   from several distant parts of a long document.
 - **The calibration was fitted on our own data.** The map was fitted on our own JevBench-style
-  items. On a different distribution of questions, its confidences can be off.
+  items. On a different distribution of questions, its confidences can be off. 1.1.0 made the map
+  as simple as we could justify — three temperatures instead of seven coefficients — precisely
+  because the richer map did not transfer off the pool it was fitted on.
 - **The dev half flatters it.** On the reserved half of the public items, it is level with the
   frozen base model on hard-tier accuracy (see the disclosure).
 - **Tested only on English.** We have not measured any other language.

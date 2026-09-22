@@ -26,23 +26,19 @@ into `jevbench/adapters/`:
 
 ## Installing the package
 
-Either from PyPI:
+There is no PyPI release. Install from a clone of this repository, with the same pinned runtime the
+main README's recipe installs:
 
 ```sh
-pip install hopper-decisions
+git clone https://github.com/hopit-ai/hopper && cd hopper && git checkout v1.1.0
+uv pip install --system --break-system-packages torch==2.8.0 transformers==5.17.0 peft==0.21.0 accelerate==1.15.0 flash-linear-attention==0.5.2 "https://github.com/Dao-AILab/causal-conv1d/releases/download/v1.7.0/causal_conv1d-1.7.0%2Bcu12torch2.8cxx11abiTRUE-cp312-cp312-linux_x86_64.whl"
+uv pip install --system --break-system-packages --no-deps -e .
 ```
 
-or from a clone of this repository, which is the same code:
-
-```sh
-git clone https://github.com/hopit-ai/hopper && cd hopper && git checkout v1.0.0
-pip install -e .
-```
-
-Both need the pinned runtime the README's recipe installs (`torch==2.8.0`, `transformers==5.17.0`,
-`peft==0.21.0`, `accelerate==1.15.0`, `flash-linear-attention==0.5.2` and the `causal-conv1d`
-wheel). The server's fast-kernel guard runs here too and refuses to start on the slow reference
-path, so a misinstalled stack fails loudly instead of producing a slow number.
+On a host without `uv`, run the same two lines with `pip install` in a virtualenv (drop `uv` and
+`--system --break-system-packages`). The versions are not optional: the server's fast-kernel guard
+runs here too and refuses to start on the slow reference path, so a misinstalled stack fails loudly
+instead of producing a slow number.
 
 ## Running it
 

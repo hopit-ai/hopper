@@ -1,40 +1,14 @@
 {
- "kind": "linear",
- "bound": 1.0986122886681098,
- "names": [
-  "intercept",
-  "log_options",
-  "log_words",
-  "json_state",
-  "is_noul",
-  "is_score",
-  "entropy"
- ],
- "weights": [
-  -0.19086088298164494,
-  -0.5838464772898263,
-  -0.014374404205570545,
-  -0.036048925682095466,
-  -0.5757853955715236,
-  0.0032798295050555613,
-  0.19385182563994008
- ],
- "means": [
-  0.0,
-  1.194336919379479,
-  5.574204769595688,
-  0.3476482617586912,
-  0.294478527607362,
-  0.05521472392638037,
-  0.6346005868967624
- ],
- "deviations": [
-  1.0,
-  0.354090510000433,
-  0.7115462952612505,
-  0.47622363218854624,
-  0.45580799069955114,
-  0.2283989014599544,
-  0.19893323309471178
- ]
+ "kind": "per_kind",
+ "temperatures": {
+  "choice": 0.7898505975532796,
+  "noul": 0.7531284680253558,
+  "score": 0.8997033695617845
+ },
+ "fitted_on": {
+  "description": "our own held-out JevBench-style look-alike items, hard tier: three measurement files, 622 items, 536 on the axis. No JevBench item and no JevBench file.",
+  "tier": "hard",
+  "map": "per_kind",
+  "dropped_leakage_flagged": 66
+ }
 }
