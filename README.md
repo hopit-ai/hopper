@@ -67,6 +67,50 @@ python -m jevbench.cli run --tasks datasets/public/original.jsonl --adapter type
 The server is single-threaded on purpose, because the harness runs serially. It needs no API key
 and ignores any `Authorization` header.
 
+### In-process route (optional, faster)
+
+The harness can also import Hopper instead of posting to it, the way its `semif_direct` adapter
+works. Same weights, same calibration map, same forward pass, same answers — the HTTP hop is simply
+gone.
+
+```sh
+pip install hopper-decisions          # or, from a clone of this repository: pip install -e .
+cd <jevbench> && git checkout v1.3.0
+git apply <hopper>/jevbench_patch/hopper_direct-v1.3.0.patch
+
+JEVBENCH_WARM_LOAD=1 python -m jevbench.cli run \
+    --tasks datasets/public/original.jsonl --adapter hopper_direct --endpoint HopitAI/hopper \
+    --model hopper --cost-basis self_hosted_gpu --reserve-usd 0 --results RESULTS.jsonl
+```
+
+The patch is a `git diff` against tag `v1.3.0` and touches two files: in `cli.py` the import,
+the `kinds` entry, the `choices=` list on `--adapter`, and the two option tuples. It copies no code
+into the harness: the adapter is `hopper_decisions/jevbench_adapter.py`, imported lazily from the
+installed package, so a host without `hopper-decisions` runs every other adapter unchanged.
+`--endpoint` is the LoRA adapter — a Hub repo id or a local directory, the same value
+`hopper-serve --adapter` takes — and may be omitted.
+
+`JEVBENCH_WARM_LOAD=1` is the harness's own convention for in-process entrants: it calls `load()`
+before starting the clock, so the weights, the fast-kernel check and the length warm-up all happen
+outside the measurement, as they do for a server that is already up. Without it the first decision
+carries the whole minute of start-up.
+
+Out-of-contract inputs — more than 26 options, a question type we do not serve, a prompt past the
+model's context — come back as `status = 422`, which the runner counts as a wrong answer and
+exempts from its three-consecutive-failure abort, so one bad item can never stop a run. A load
+failure or a CUDA fault comes back with no status and does count. `jevbench_patch/README.md` has
+the details.
+
+Measured on an A10G through the harness's own `cli.py` at v1.3.0 with this patch, over the same
+115-item development half: standard-tier p50 / p95 **52.6 / 55.7 ms** and all-items 55.3 / 460.6 ms,
+against 53.4 / 55.6 and 56.2 / 472.0 for the HTTP route on the same image and GPU. 114 of 115 top
+answers identical to our evaluation — the same exact tie as in the table below — with no invalid
+replies and no failures, and the probabilities identical to the served ones. Over a localhost
+loopback the hop costs about a millisecond, so the gain here is small; how large it is on your own
+host is yours to measure.
+
+The HTTP route above remains the primary one; this is the same system with one less hop.
+
 ## GPU and memory
 
 You need one CUDA GPU with 16 GB or more. The bf16 weights take about 9 GB, and the adapter is

@@ -1,0 +1,58 @@
+diff --git a/jevbench/adapters/__init__.py b/jevbench/adapters/__init__.py
+index 0474e82..b28abe9 100644
+--- a/jevbench/adapters/__init__.py
++++ b/jevbench/adapters/__init__.py
+@@ -39,3 +39,8 @@ from .smalljev_local import SmallJevLocalAdapter  # noqa: F401
+ def NeedleLocalAdapter(**kw):  # lazy: only the Needle venv can import needle
+     from .needle_local import NeedleLocalAdapter as A
+     return A(**kw)
++
++
++def HopperDirectAdapter(**kw):  # lazy: the adapter ships in the `hopper-decisions` package, not here
++    from hopper_decisions.jevbench_adapter import HopperDirectAdapter as A
++    return A(**kw)
+diff --git a/jevbench/cli.py b/jevbench/cli.py
+index 3d5504d..c476ade 100644
+--- a/jevbench/cli.py
++++ b/jevbench/cli.py
+@@ -25,7 +25,7 @@ from .adapters import (GradioSpaceAdapter, LocalOpenJevAdapter, NeedleLocalAdapt
+                        RemoteInprocAdapter, SemIfDirectAdapter, SgSystemOneAdapter, So1DeciderAdapter,
+                        TypeSafeAdapter, DjevAdapter,
+                        LayaLocalAdapter, Gliner2LocalAdapter, VerdictLocalAdapter, PawLocalAdapter,
+-                       ClassifierDevAdapter, CertoLocalAdapter)
++                       ClassifierDevAdapter, CertoLocalAdapter, HopperDirectAdapter)
+ from .budget import Ledger
+ from .runner import DEFAULT_RESERVE_USD, Runner
+ from .summarize import public_export, summarize
+@@ -64,8 +64,9 @@ def cmd_run(args) -> int:
+              "djev": DjevAdapter,
+              "laya_local": LayaLocalAdapter, "gliner2_local": Gliner2LocalAdapter,
+              "verdict_local": VerdictLocalAdapter, "paw_local": PawLocalAdapter,
+-             "classifier_dev": ClassifierDevAdapter, "certo_local": CertoLocalAdapter}
+-    if args.adapter not in ("typesafe", "djev", "needle_local", "semif_direct", "so1_decider", "sg_system_one", "classifier_dev") and not args.endpoint:
++             "classifier_dev": ClassifierDevAdapter, "certo_local": CertoLocalAdapter,
++             "hopper_direct": HopperDirectAdapter}
++    if args.adapter not in ("typesafe", "djev", "needle_local", "semif_direct", "so1_decider", "sg_system_one", "classifier_dev", "hopper_direct") and not args.endpoint:
+         print(f"--endpoint required for {args.adapter}", file=sys.stderr)
+         return 2
+     kwargs = dict(endpoint=args.endpoint, model=args.model,
+@@ -75,7 +76,8 @@ def cmd_run(args) -> int:
+     if args.adapter == "openai_compat":
+         kwargs["model"] = args.model or ""
+     if args.adapter in ("local_openjev", "semif_direct", "so1_decider", "sg_system_one",
+-                        "laya_local", "gliner2_local", "verdict_local", "paw_local", "certo_local"):
++                        "laya_local", "gliner2_local", "verdict_local", "paw_local", "certo_local",
++                        "hopper_direct"):
+         kwargs["revision"] = args.revision
+     adapter = kinds[args.adapter](**kwargs)
+     if args.cost_basis:
+@@ -164,7 +166,8 @@ def main(argv=None) -> int:
+                                 "local_openjev", "openai_compat", "needle_local",
+                                 "semif_direct", "so1_decider", "remote_inproc",
+                                 "sg_system_one", "djev", "laya_local", "gliner2_local",
+-                                "verdict_local", "paw_local", "classifier_dev", "certo_local"])
++                                "verdict_local", "paw_local", "classifier_dev", "certo_local",
++                                "hopper_direct"])
+     p_run.add_argument("--endpoint", default=None)
+     p_run.add_argument("--model", default=None)
+     p_run.add_argument("--key-env", dest="key_env",
