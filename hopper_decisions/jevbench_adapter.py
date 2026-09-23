@@ -7,7 +7,7 @@ decision costs one forward pass and no HTTP hop:
       --adapter hopper_direct --endpoint HopitAI/hopper --cost-basis self_hosted_gpu
 
 It is the same code path as `hopper-serve`, not a second one: `Decider` is built with the shipped
-calibration map, the fast-kernel guard on and the length warm-up on, exactly as
+calibration map, the fast-kernel guard on, the length warm-up on and CUDA graphs on, exactly as
 `hopper_decisions.server` builds it, and every decision goes through `Decider.score` and
 `request.harness_probs`, exactly as the server's `POST /run` route does. The answers are therefore
 identical to the served ones, down to the float.
@@ -52,7 +52,7 @@ class HopperDirectAdapter:
 
     def __init__(self, endpoint=None, model=None, key_env="", timeout_s=None,
                  price_input_per_m=None, price_output_per_m=None, revision=None,
-                 calibration_map=MAP, allow_slow_kernels=False):
+                 calibration_map=MAP, allow_slow_kernels=False, cuda_graphs=True):
         # `endpoint` is the LoRA adapter: a Hugging Face repo id or a local directory, the same
         # value `hopper-serve --adapter` takes. `revision` optionally repins the base model.
         self.endpoint = endpoint or HF_REPO
@@ -64,6 +64,7 @@ class HopperDirectAdapter:
         self.price_output_per_m = price_output_per_m
         self.calibration_map = calibration_map
         self.allow_slow_kernels = allow_slow_kernels
+        self.cuda_graphs = cuda_graphs
         self.load_s = None
         self.fast_kernels = None
         self._decider = None
@@ -76,6 +77,7 @@ class HopperDirectAdapter:
             started = time.perf_counter()
             self._decider = Decider(adapter=self.endpoint, calibration_map=self.calibration_map,
                                     name=self.model, allow_slow_kernels=self.allow_slow_kernels,
+                                    cuda_graphs=self.cuda_graphs,
                                     **({"revision": self.revision} if self.revision else {}))
             self.load_s = time.perf_counter() - started
             self._report(self._decider)
@@ -87,13 +89,16 @@ class HopperDirectAdapter:
         in-process route has no server log, and a number is only worth publishing if this says so."""
         self.fast_kernels = not decider.slow_kernels
         gpu, (count, warm) = decider.gpu, decider.warm_seconds
+        plan = getattr(decider, "graph_plan", None) or {}
+        graphs = (f"cuda graphs {len(plan)} buckets, {min(plan)} to {max(plan)} tokens" if plan
+                  else "cuda graphs off" if not getattr(decider, "graph_status", None) else "cuda graphs none in use")
         kernels = ", ".join(f"{op}={info['implementation']}{'' if info['fast'] else ' (SLOW)'}"
                             for op, info in decider.kernels.items())
         print(f"[hopper] {decider.name} on {gpu.get('name')} (compute capability {gpu.get('capability')}, "
               f"CUDA {gpu.get('cuda')}, torch {gpu.get('torch')}); "
               f"{'fast-kernel check passed' if self.fast_kernels else 'WARNING: SLOW reference path, do not time this run'}"
               f"{'; ' + kernels if kernels else ''}; loaded in {self.load_s:.1f} s, "
-              f"{count} lengths warmed in {warm:.1f} s", flush=True)
+              f"{count} lengths warmed in {warm:.1f} s; {graphs}", flush=True)
 
     def build_request(self, task):
         """The canonical record as `hopper_decisions.request.parse` reads it. The question is built

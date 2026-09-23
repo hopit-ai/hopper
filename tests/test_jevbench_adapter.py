@@ -258,7 +258,7 @@ def test_load_builds_the_decider_the_server_builds(monkeypatch):
                         types.SimpleNamespace(Decider=lambda **kw: built.append(kw) or FakeDecider()))
     HopperDirectAdapter(endpoint="/adapters/x").load()
     assert built[0] == {"adapter": "/adapters/x", "calibration_map": MAP, "name": "hopper",
-                        "allow_slow_kernels": False}        # map shipped, guard on, warm-up on
+                        "allow_slow_kernels": False, "cuda_graphs": True}  # map shipped, guard, warm-up and graphs on
     built.clear()
     HopperDirectAdapter(revision="deadbeef").load()
     assert built[0]["revision"] == "deadbeef"

@@ -55,7 +55,33 @@ def handler(decider):
     return Handler
 
 
-def main():
+def graph_lines(decider):
+    """The start-up log's CUDA-graph lines: which request lengths replay a graph, and for every
+    bucket that does not serve, why (slower than eager here, out of memory, or a failed capture)."""
+    status, plan = decider.graph_status, decider.graph_plan
+    if not status:
+        return []
+    size = f", graph memory {decider.graph_bytes / 2**30:.2f} GiB" if decider.graph_bytes is not None else ""
+    if plan:
+        lines = [f"cuda graphs: {len(plan)} of {len(status)} buckets in use, {min(plan)} to {max(plan)} tokens "
+                 f"(captured in {decider.graph_seconds:.1f} s{size}); requests over {max(plan)} tokens run eager"]
+    else:
+        lines = [f"cuda graphs: none in use (tried in {decider.graph_seconds:.1f} s); every request runs eager"]
+    for bucket, state in status.items():
+        timing = decider.graph_timing.get(bucket, {})
+        if bucket in plan and plan[bucket] > timing.get("from", plan[bucket]):
+            lines.append(f"cuda graph {bucket} tokens: serves {plan[bucket]}-{bucket}; {timing['from']}-"
+                         f"{plan[bucket] - 1} run eager, where the graph is not faster")
+        elif state == "captured":
+            continue
+        elif state.startswith(("not used", "skipped", "not attempted")):
+            lines.append(f"cuda graph {bucket} tokens: eager, {state}")
+        else:
+            lines.append(f"cuda graph {bucket} tokens: NOT captured, eager fallback ({state})")
+    return lines
+
+
+def build_parser():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--adapter", default=HF_REPO, help=f"LoRA adapter directory or Hugging Face repo id (default {HF_REPO})")
     parser.add_argument("--map", default=str(MAP), help="calibration map JSON (default: the one shipped in the package)")
@@ -65,15 +91,23 @@ def main():
     parser.add_argument("--name", default=NAME, help=f"the `model` field every reply carries (default {NAME})")
     parser.add_argument("--no-length-warmup", action="store_true",
                         help="skip the start-up forwards over a spread of lengths (64 to 2,048 tokens)")
+    parser.add_argument("--no-cuda-graphs", action="store_true",
+                        help="run every request eagerly instead of replaying the CUDA graphs captured at "
+                             "start-up (shorter start-up, same answers)")
     parser.add_argument("--allow-slow-kernels", action="store_true",
                         help="DEBUG ONLY: start even if the linear-attention layers would run on transformers' "
                              "slow PyTorch reference path; never time or submit such a run")
-    args = parser.parse_args()
+    return parser
+
+
+def main():
+    args = build_parser().parse_args()
     from hopper_decisions import fastpath
     from hopper_decisions.model import Decider
     try:
         decider = Decider(adapter=args.adapter, calibration_map=None if args.no_map else args.map,
                           allow_slow_kernels=args.allow_slow_kernels, name=args.name,
+                          cuda_graphs=not args.no_cuda_graphs,
                           **({"warm_lengths": ()} if args.no_length_warmup else {}))
     except fastpath.SlowKernels as error:
         sys.exit(str(error))  # exit status 1, the message on stderr
@@ -89,6 +123,8 @@ def main():
         print("fast-kernel check passed", flush=True)
     count, seconds = decider.warm_seconds
     print(f"length warm-up: {count} lengths in {seconds:.1f} s", flush=True)
+    for line in graph_lines(decider) or ["cuda graphs: off (--no-cuda-graphs); every request runs eager"]:
+        print(line, flush=True)
     print(f"serving {decider.name} on {args.host}:{args.port}", flush=True)
     HTTPServer((args.host, args.port), handler(decider)).serve_forever()
 

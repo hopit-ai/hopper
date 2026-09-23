@@ -1,5 +1,22 @@
 # Changes
 
+## 1.2.0 (in development, branch `v1.2-dev`)
+
+Same adapter weights and calibration map as 1.1.0. Same prompt and same wire format.
+
+- **CUDA graphs, on by default.** At start-up, after the fast-kernel guard and the length
+  warm-up, the forward pass is captured into one CUDA graph per length bucket, from 128 to 4,096
+  tokens. Requests are right-padded to the next bucket and replayed. Each bucket is timed against
+  eager at start-up and used only for the request lengths where it measured faster. The graphs
+  share one memory pool, and a bucket that would not leave room for a long eager request is
+  skipped. `hopper-serve --no-cuda-graphs` (or `Decider(cuda_graphs=False)`,
+  `HopperDirectAdapter(cuda_graphs=False)`) restores the 1.1.0 behaviour.
+  On an A10G: standard-length p50 / p95 54.3 / 55.0 → 41.7 / 44.8 ms, and judge-length items
+  unchanged (113.0 / 188.8 → 113.3 / 190.1 ms), because at those lengths the forward is bound by
+  GPU work, not kernel launches. 265 / 265 top answers identical to eager, max |Δp| 0.031.
+  Start-up adds 23.5 s, and graph memory is at most 1.3 GiB; 16 GB cards still work. Details in
+  `README.md`, "CUDA graphs".
+
 ## 1.1.0
 
 Same adapter weights as 1.0.0, byte for byte. Two changes, neither of which touches the prompt,

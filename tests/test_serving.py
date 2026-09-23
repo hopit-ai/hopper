@@ -218,3 +218,54 @@ def test_the_warmup_lengths_span_64_to_2048_tokens():
     from hopper_decisions.model import WARM_LENGTHS
     assert len(WARM_LENGTHS) == 16 and WARM_LENGTHS[0] == 64 and WARM_LENGTHS[-1] == 2048
     assert list(WARM_LENGTHS) == sorted(set(WARM_LENGTHS))
+
+
+def graphs_decider(status, plan=None, timing=None):
+    import types
+    return types.SimpleNamespace(
+        graph_status=status, graph_timing=timing or {}, graph_seconds=12.3, graph_bytes=0.5 * 2**30,
+        graph_plan=plan if plan is not None else {b: 1 for b, s in status.items() if s == "captured"})
+
+
+def test_cuda_graphs_are_on_unless_turned_off():
+    from hopper_decisions import server
+    assert server.build_parser().parse_args([]).no_cuda_graphs is False
+    assert server.build_parser().parse_args(["--no-cuda-graphs"]).no_cuda_graphs is True
+
+
+def test_the_start_up_log_names_the_buckets_in_use_and_every_fallback():
+    from hopper_decisions.server import graph_lines
+    status = {128: "captured", 256: "captured", 512: "RuntimeError: CUDA error during capture",
+              1024: "not used: replay 166.0 ms is not faster than eager (150.0 ms at 513, 165.2 ms at 1024 tokens)",
+              2048: "skipped: needs 1.10 GiB and 1.50 GiB is free, of which 1.00 GiB is kept for longer requests",
+              4096: "not attempted: a shorter bucket did not fit in memory"}
+    lines = graph_lines(graphs_decider(status))
+    assert lines[0] == ("cuda graphs: 2 of 6 buckets in use, 128 to 256 tokens (captured in 12.3 s, graph memory "
+                        "0.50 GiB); requests over 256 tokens run eager")
+    fallback, = [line for line in lines if "NOT captured" in line]
+    assert "512 tokens" in fallback and "CUDA error during capture" in fallback
+    assert any(line.startswith("cuda graph 1024 tokens: eager, not used: replay 166.0 ms") for line in lines)
+    assert any(line.startswith("cuda graph 2048 tokens: eager, skipped: needs 1.10 GiB") for line in lines)
+    assert any(line.startswith("cuda graph 4096 tokens: eager, not attempted") for line in lines)
+
+
+def test_the_start_up_log_says_where_a_bucket_serves_only_part_of_its_range():
+    from hopper_decisions.server import graph_lines
+    lines = graph_lines(graphs_decider({448: "captured", 512: "captured"}, {448: 385, 512: 470},
+                                       {448: {"from": 385}, 512: {"from": 449}}))
+    assert "cuda graph 512 tokens: serves 470-512; 449-469 run eager, where the graph is not faster" in lines
+    assert not any(line.startswith("cuda graph 448 tokens") for line in lines)
+
+
+def test_the_start_up_log_is_silent_about_graphs_that_were_never_asked_for():
+    from hopper_decisions.server import graph_lines
+    assert graph_lines(graphs_decider({})) == []
+    lines = graph_lines(graphs_decider({128: "not used: replay 50.0 ms is not faster than eager"}))
+    assert lines[0].startswith("cuda graphs: none in use")
+
+
+def test_cuda_graphs_and_prefix_cache_cannot_both_be_asked_for():
+    pytest.importorskip("torch")
+    from hopper_decisions.model import Decider
+    with pytest.raises(ValueError):
+        Decider(cuda_graphs=True, prefix_cache=True)

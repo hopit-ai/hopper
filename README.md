@@ -131,7 +131,9 @@ The HTTP route above remains the primary one; this is the same system with one l
 ## GPU and memory
 
 You need one CUDA GPU with 16 GB or more. The bf16 weights take about 9 GB, and the adapter is
-merged into them at load. The longest public item we ran was 3,708 tokens. We tested on an A10G,
+merged into them at load. The CUDA graphs (below) add at most 1.3 GiB. On an A10G the server used
+10.8 GiB of device memory in total after serving every item. With the card limited to what a
+16 GB card reports, peak use was 11.4 GiB. The longest public item we ran was 3,708 tokens. We tested on an A10G,
 an H100 NVL and an RTX PRO 4500 Blackwell.
 
 ## Start-up: fast-kernel guard and warm-up
@@ -148,7 +150,44 @@ The same start-up forwards (39, 1,948, 3,996 and 6,044 tokens) compile and autot
 kernel before the first request. Otherwise the first request past each 2,048-token band would
 pay about 10 s once. After them the server also runs 16 forwards at lengths spread between 64 and
 2,048 tokens. This absorbs per-length first-use costs seen on an H100, and it cannot change any
-answer. `--no-length-warmup` turns it off. Start-up takes about a minute once the weights are local.
+answer. `--no-length-warmup` turns it off. Start-up takes about a minute once the weights are local,
+plus about 25 s for the CUDA graphs.
+
+## CUDA graphs (on by default since 1.2.0)
+
+After the guard and the warm-up, the server captures the forward pass into one CUDA graph per
+length bucket: 128, 160, 192, 224, 256, 320, 384, 448, 512, 640, 768, 896, 1024, 1280, 1536,
+2048, 3072 and 4096 tokens. A request is right-padded to the next bucket and the graph is
+replayed, which removes the host's kernel-launch time. The padding cannot change an answer: the
+model is causal, the answer is read at the last real token, and the linear-attention chunks are
+counted from the first token, so they do not move. Requests over 4,096 tokens run eager.
+
+A graph only helps a forward whose time goes into kernel launches, and padded tokens are real
+GPU work. So at start-up each bucket's replay is timed against eager forwards at both ends of its
+range, and the graph serves only the request lengths where it measured at least 2 % faster.
+Every other request runs eager, exactly as with `--no-cuda-graphs`. On an A10G that means graphs
+up to about 500 tokens (plus a sliver at 1,249-1,280). Above that the forward is bound by GPU
+work, and the replay is no faster than eager. A faster GPU stays launch-bound to longer prompts
+and keeps more buckets. The start-up log prints which buckets are in use, from which length, and
+why any other bucket is not (not faster here, not enough memory, or a failed capture, which falls
+back to eager).
+
+All graphs share one memory pool. A bucket is captured only if it fits while enough memory stays
+free for an eager forward of about 6,000 tokens. On a smaller card the ladder therefore stops
+early rather than failing, and the log says where.
+
+Measured on an A10G over our 115-item development half and 150 of our own judge-length items
+(405-1,419 tokens, mean 663). Numbers are p50 / p95 in ms, in-process:
+
+| | eager (`--no-cuda-graphs`) | CUDA graphs |
+| --- | ---: | ---: |
+| standard and easy items (mean 191 tokens) | 54.3 / 55.0 | 41.7 / 44.8 |
+| judge-length items (mean 663 tokens) | 113.0 / 188.8 | 113.3 / 190.1 |
+
+Answers: 265 / 265 top answers identical with and without graphs. The largest probability change
+is 0.031, which is the size of the difference between the serving path and our evaluation path
+with no graphs at all. The same holds with the card limited to 16 GB. Capture takes 23.5 s on the
+A10G. `--no-cuda-graphs` turns graphs off. The in-process adapter takes `cuda_graphs=False`.
 
 ## Measured latency
 
@@ -177,5 +216,6 @@ pip install -e ".[test]" && pytest     # no GPU, no network
 
 ## Changes
 
-`CHANGELOG.md`. 1.1.0 adds the in-process route above and replaces the calibration map with one
+`CHANGELOG.md`. 1.2.0 (in development) turns on CUDA graphs by default, with the same answers.
+1.1.0 adds the in-process route above and replaces the calibration map with one
 temperature per answer type; the adapter weights are unchanged from 1.0.0, and so is every answer.

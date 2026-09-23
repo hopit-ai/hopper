@@ -1,4 +1,5 @@
-"""Refuse to serve Qwen3.5 on the slow reference path of its linear-attention layers.
+"""Refuse to serve Qwen3.5 on the slow reference path of its linear-attention layers, and hold the
+pure part of the CUDA-graph fast path (length buckets, padding and which requests use a graph).
 
 transformers 5.17 picks each Gated-DeltaNet op once, when `modeling_qwen3_5` is imported
 (`integrations/hub_kernels.py`, `use_kernel_func_from_hub_with_fallback`): it tries to import the
@@ -14,6 +15,7 @@ short forward with those names wrapped, recording which implementation actually 
 from __future__ import annotations
 
 import importlib
+import math
 import sys
 from contextlib import contextmanager
 
@@ -26,10 +28,62 @@ CONV1D_WHEEL = ("https://github.com/Dao-AILab/causal-conv1d/releases/download/v1
 INSTALL = {"fla": f"pip install flash-linear-attention=={FLA_VERSION}",
            "causal_conv1d": f'pip install "{CONV1D_WHEEL}"  (needs torch 2.8, CUDA 12, CPython 3.12)'}
 OVERRIDE = "--allow-slow-kernels"
+# A CUDA graph needs one static shape, so a request is right-padded to the next bucket and the graph
+# for that bucket is replayed. The graph removes the host's kernel-launch time (~12-20 ms of a ~53 ms
+# forward on an A10G), but every padded token is real GPU work, and once a forward is long enough to
+# be GPU-bound the launches already overlap the GPU work and there is nothing left to remove: on an
+# A10G that happens above ~500 tokens. Where it happens depends on the card, so the ladder covers
+# 128-4,096 tokens (64-token steps up to 512, the delta-rule chunk size, coarser above; eager beyond)
+# and capture measures, per bucket, the replay against eager forwards at both ends of its range,
+# using the graph only for request lengths where it is measurably faster (`threshold`). One memory
+# pool is shared by all buckets: 1.3 GiB for the whole ladder on an A10G (README, "CUDA graphs").
+BUCKETS = (128, 160, 192, 224, 256, 320, 384, 448, 512, 640, 768, 896, 1024, 1280, 1536, 2048, 3072, 4096)
+MARGIN = 0.02  # a graph must be at least this much faster than eager, or the request stays eager
 
 
 class SlowKernels(RuntimeError):
     pass
+
+
+def bucket_for(n, buckets=BUCKETS):
+    """The smallest captured length that fits n tokens, or None: such a request runs eager."""
+    return next((b for b in sorted(buckets) if b >= n), None)
+
+
+def threshold(lo, hi, eager_lo_ms, eager_hi_ms, replay_ms, margin=MARGIN):
+    """The shortest request, in lo..hi tokens, for which replaying the hi-token graph beats an eager
+    forward by `margin`, or None if no length in the range does. Eager time is measured at lo and at
+    hi and taken as linear in between; the replay costs the same for every length it serves."""
+    target = replay_ms / (1 - margin)
+    if eager_lo_ms >= target:
+        return lo
+    if eager_hi_ms < target or hi <= lo:
+        return None
+    return min(hi, lo + math.ceil((target - eager_lo_ms) / (eager_hi_ms - eager_lo_ms) * (hi - lo)))
+
+
+def route(n, plan):
+    """The bucket whose graph serves an n-token request, or None for the eager path. `plan` maps each
+    bucket in use to the shortest request it serves; anything shorter than that in its range, and
+    anything longer than the largest bucket, runs eager."""
+    bucket = bucket_for(n, plan)
+    return bucket if bucket is not None and n >= plan[bucket] else None
+
+
+def fits(need, free, reserve):
+    """Capture a bucket only if its activations fit while `reserve` bytes stay free for eager
+    requests longer than the ladder."""
+    return need + reserve <= free
+
+
+def padded(ids, bucket, pad):
+    """Right-pad to the bucket length. The model is causal (softmax attention is masked, the
+    Gated-DeltaNet recurrence and the causal conv run forward in time) and we read position
+    len(ids)-1, so nothing appended after it can change the answer. Chunk boundaries inside the
+    delta-rule kernels are counted from token 0 and therefore do not move either."""
+    if not 0 < len(ids) <= bucket:
+        raise ValueError(f"{len(ids)} tokens do not fit a bucket of {bucket}")
+    return list(ids) + [pad] * (bucket - len(ids))
 
 
 def implementation(fn):
