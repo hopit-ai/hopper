@@ -1,5 +1,7 @@
 # Hopper
 
+> **Research and demo use only.** This adapter is published for research and demonstration. Its training data included passages from RACE (via the `cais/mmlu` auxiliary set), which its authors release for non-commercial research only and whose terms extend to derived data. Do not use this adapter commercially. A version trained without these passages is in development.
+
 A JevBench decision server. Hopper is a LoRA adapter on
 [`Qwen/Qwen3.5-4B`](https://huggingface.co/Qwen/Qwen3.5-4B) at revision
 `851bf6e806efd8d0a36b00ddf55e13ccb7b8cd0a`, merged into the bf16 weights at load. Each decision
@@ -11,7 +13,9 @@ never changes an answer.
 The server speaks the JevBench `/v1/systemone` wire format, so the harness's existing `typesafe`
 adapter runs unchanged. It also answers `remote_inproc`'s `POST /run`.
 
-Code and adapter weights: Apache-2.0, the same licence as the base model. See `LICENSE` and `NOTICE`.
+Code: Apache-2.0, the same licence as the base model. See `LICENSE` and `NOTICE`. The adapter
+weights are offered for research and demo use only, because of the RACE training-data terms above
+(see `MODEL_CARD.md`, "Training data").
 
 ## The adapter
 
