@@ -3,7 +3,8 @@ ordinary one-pass letter readout decides among those. Imports no ML framework.
 
 The readout puts one option per letter, so one pass can weigh at most 26 options. Routing and
 retrieval menus are longer (77 intents, 150 intents, hundreds of tools). A choice question with
-more options than `Config.threshold` (26 by default) is therefore answered in two stages:
+more than 26 options is therefore answered in two stages (a question with 26 or fewer never is,
+whatever the configuration):
 
   1. First stage, one of two:
      tournament  no extra model. The menu is dealt round-robin into ceil(n / 26) chunks, and each
@@ -23,19 +24,28 @@ The reply is a probability for EVERY option in the request, never only the k sur
     p(option) =                                  residual / n      for an eliminated option
 
 that is, the final distribution mixed with `residual` of the uniform distribution over the whole
-menu. It sums to 1, every label keeps positive mass, and the mixture adds the same amount to every
-label, so it can never change which option wins. The eliminated options together get
-residual * (n - k) / n, which is meant as an estimate of how often the first stage throws away the
-right answer. The default, 0.05, is set from the one measurement we have (see the README, "Long
-menus"), and is to be refitted as 1 - recall@k once the adapter is measured on long menus. Nothing
-is renormalised away silently: `residual=0` is allowed, and then the eliminated options are still
-listed, at 0.0.
+menu. It sums to 1 and every label keeps positive mass. The mixture adds the same amount to every
+label, so in exact arithmetic it cannot change which option wins; in floating point two survivors
+one representable step apart can round to the same value, so `spread` checks the reply exactly as
+`request.response` will normalise it and, only if the final pass's own answer no longer wins, raises
+that one probability by single representable steps until it does. The eliminated options together
+get residual * (n - k) / n, which is meant as an estimate of how often the first stage throws away
+the right answer. The default, 0.05, is set from the one measurement we have (see the README, "Long
+menus"), and is to be refitted as 1 - recall@k once the adapter is measured on long menus; any
+value from 0 to `RESIDUAL_MAX` (0.5) is accepted, so the final pass always carries at least half the
+mass. Nothing is renormalised away silently: `residual=0` is allowed, and then the eliminated
+options are still listed, at 0.0.
+
+Every prompt this module builds -- each tournament chunk and the final pass -- is checked against
+the model's context before its forward pass (`TooLong`, a `ValueError`), so a menu that cannot be
+read is refused like any other malformed request (HTTP 400, or 422 in-process).
 
 Deterministic: the chunks are dealt with a fixed seed, and ties break on the option's position.
 """
 
 from __future__ import annotations
 
+import math
 import random
 import time
 from dataclasses import dataclass
@@ -47,19 +57,23 @@ LIMIT = len(LETTERS)                                  # options one readout pass
 STRATEGIES = ("tournament", "embedding")
 DEFAULT_K = {"tournament": 10, "embedding": 26}      # tournament k=10 is the measured best; see README
 RESIDUAL = 0.05
+RESIDUAL_MAX = 0.5                                    # the final pass always carries at least half the mass
 EMBEDDER = "Qwen/Qwen3-Embedding-0.6B"                # Apache-2.0
 EMBEDDER_REVISION = "97b0c614be4d77ee51c0cef4e5f07c00f9eb65b3"
 
 
+class TooLong(ValueError):
+    """A prompt of a shortlisted decision is longer than the model's context."""
+
+
 @dataclass(frozen=True)
 class Config:
-    """How a long menu is answered. `k=None` takes the strategy's default. `threshold`: a choice
-    question with more options than this is shortlisted; at most 26, since a longer menu cannot be
-    read in one pass."""
+    """How a long menu is answered. `k=None` takes the strategy's default. Only a choice question
+    with more than 26 options is ever shortlisted (`applies`); there is no setting that sends a
+    shorter menu here, so every question of 26 options or fewer takes the ordinary single pass."""
 
     strategy: str = "tournament"
     k: int | None = None
-    threshold: int = LIMIT
     residual: float = RESIDUAL
     seed: int = 0
     embedder: str = EMBEDDER
@@ -70,17 +84,16 @@ class Config:
             raise ValueError(f"unknown shortlist strategy {self.strategy!r}; one of {', '.join(STRATEGIES)}")
         if not 2 <= self.size <= LIMIT:
             raise ValueError(f"shortlist k must be 2 to {LIMIT}, not {self.size}")
-        if not 1 <= self.threshold <= LIMIT:
-            raise ValueError(f"shortlist threshold must be 1 to {LIMIT}, not {self.threshold}")
-        if not 0.0 <= self.residual < 1.0:
-            raise ValueError(f"residual must be in [0, 1), not {self.residual}")
+        if isinstance(self.residual, bool) or not isinstance(self.residual, (int, float)) \
+                or not 0.0 <= self.residual <= RESIDUAL_MAX:
+            raise ValueError(f"residual must be from 0 to {RESIDUAL_MAX}, not {self.residual!r}")
 
     @property
     def size(self):
         return DEFAULT_K[self.strategy] if self.k is None else self.k
 
     def describe(self):
-        return (f"shortlist: {self.strategy}, k={self.size}, for choice questions over {self.threshold} options, "
+        return (f"shortlist: {self.strategy}, k={self.size}, for choice questions over {LIMIT} options, "
                 f"residual {self.residual:g} spread over the whole menu"
                 + (f", embedder {self.embedder}@{(self.embedder_revision or 'main')[:12]}"
                    if self.strategy == "embedding" else ""))
@@ -90,12 +103,16 @@ DEFAULT = Config()
 
 
 def applies(config, example):
-    """Is this parsed request one for the shortlist? Only a choice question longer than the
-    threshold and longer than k; everything else is the ordinary single pass, unchanged."""
-    if config is None or example["kind"] != "choice":
-        return False
-    count = len(example["options"])
-    return count > config.threshold and count > config.size
+    """Is this parsed request one for the shortlist? Only a choice question with more than 26
+    options, which one pass cannot read; everything else is the ordinary single pass, unchanged.
+    (k is at most 26, so a shortlisted menu is always longer than k.)"""
+    return config is not None and example["kind"] == "choice" and len(example["options"]) > LIMIT
+
+
+def context_limit(decider):
+    """The model's context in tokens, or None where the decider does not say."""
+    config = getattr(getattr(decider, "model", None), "config", None)
+    return getattr(config, "max_position_embeddings", None) or None
 
 
 def chunk_indices(count, size=LIMIT, rng=None):
@@ -117,12 +134,28 @@ def top_indices(scores, k):
 
 def spread(names, shortlist, final, residual):
     """Probabilities over every option: `final` (a distribution over the options at `shortlist`)
-    mixed with `residual` of the uniform distribution over all of `names`. See the module docstring."""
+    mixed with `residual` of the uniform distribution over all of `names`. See the module docstring.
+    The reply's answer is always the one the final pass alone gives (`keep_winner`)."""
+    if len(set(names)) != len(names):
+        raise ValueError("option names repeat")
     share = residual / len(names)
     probs = {name: share for name in names}
     for index, p in zip(shortlist, final):
         probs[names[index]] += (1.0 - residual) * p
-    return probs
+    alone = {names[index]: p for index, p in zip(shortlist, final)}
+    return keep_winner(probs, request.argmax(request.normalise(alone)))
+
+
+def keep_winner(probs, winner, steps=64):
+    """`probs`, with `winner` raised by single representable steps only if that is needed for the
+    reply -- normalised and tie-broken exactly as `request.response` and the harness do it -- to
+    name `winner`. The mixture is monotone, so it can only ever create a tie, never reverse an
+    order; one or two steps (about 1e-16) break it. Leaves every other value untouched."""
+    for _ in range(steps):
+        if request.argmax(request.normalise(probs)) == winner:
+            return probs
+        probs[winner] = math.nextafter(probs[winner], math.inf)
+    raise AssertionError(f"could not keep {winner!r} the answer")  # unreachable for a distribution
 
 
 def subset(example, indices):
@@ -131,15 +164,20 @@ def subset(example, indices):
 
 
 class Clock:
-    """Adds up tokenisation, forward and embedding time over the passes of one decision."""
+    """Adds up tokenisation, forward and embedding time over the passes of one decision, and
+    refuses a prompt longer than `limit` tokens before its forward pass."""
 
-    def __init__(self):
+    def __init__(self, limit=None):
         self.tokenise = self.forward = 0.0
+        self.limit = limit
 
     def encode(self, decider, example):
         started = time.perf_counter()
         ids = decider.encode(example)
         self.tokenise += time.perf_counter() - started
+        if self.limit is not None and len(ids) > self.limit:
+            raise TooLong(f"a {len(example['options'])}-option prompt of {len(ids)} tokens is longer than "
+                          f"the model's context of {self.limit}")
         return ids
 
     def run(self, fn, *args):
@@ -149,10 +187,15 @@ class Clock:
         return out
 
 
+def tournament_groups(example, config):
+    """The chunks a tournament deals this menu into, exactly as `tournament_scores` deals them."""
+    return chunk_indices(len(example["options"]), LIMIT, random.Random(config.seed))
+
+
 def tournament_scores(decider, example, config, clock):
     """(score per option, passes, tokens): every option's probability within its own chunk of at most
     26, each chunk read by the ordinary single pass over the same prompt layout."""
-    groups = chunk_indices(len(example["options"]), LIMIT, random.Random(config.seed))
+    groups = tournament_groups(example, config)
     scores, tokens = [0.0] * len(example["options"]), 0
     for group in groups:
         ids = clock.encode(decider, subset(example, group))
@@ -174,7 +217,7 @@ def decide(decider, example, key, config, started=None):
     name. Returns what `Decider.score` returns, plus a `shortlist` record of what was done."""
     entered = time.perf_counter()
     parse_s = 0.0 if started is None else entered - started  # request.parse, before this was called
-    clock = Clock()
+    clock = Clock(context_limit(decider))
     names = [o["name"] for o in example["options"]]
     if config.strategy == "tournament":
         scores, passes, tokens = tournament_scores(decider, example, config, clock)

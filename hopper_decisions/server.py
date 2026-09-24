@@ -94,9 +94,11 @@ def build_parser():
     parser.add_argument("--name", default=NAME, help=f"the `model` field every reply carries (default {NAME})")
     parser.add_argument("--no-length-warmup", action="store_true",
                         help="skip the start-up forwards over a spread of lengths (64 to 2,048 tokens)")
-    parser.add_argument("--no-cuda-graphs", action="store_true",
-                        help="run every request eagerly instead of replaying the CUDA graphs captured at "
-                             "start-up (shorter start-up, same answers)")
+    parser.add_argument("--cuda-graphs", action="store_true",
+                        help="opt in: capture the forward pass into one CUDA graph per length bucket (128 to "
+                             "4,096 tokens) at start-up and replay it wherever it measured faster than eager. "
+                             "Off by default: the same top answers, but probabilities are not bit-identical "
+                             "to 1.1.0's eager replies")
     parser.add_argument("--allow-slow-kernels", action="store_true",
                         help="DEBUG ONLY: start even if the linear-attention layers would run on transformers' "
                              "slow PyTorch reference path; never time or submit such a run")
@@ -108,12 +110,10 @@ def build_parser():
     long.add_argument("--shortlist-k", type=int, default=None,
                       help=f"options kept for the final pass, 2 to {shortlist.LIMIT} (default "
                            + ", ".join(f"{k} for {s}" for s, k in shortlist.DEFAULT_K.items()) + ")")
-    long.add_argument("--shortlist-threshold", type=int, default=shortlist.DEFAULT.threshold,
-                      help=f"shortlist choice questions with more options than this, 1 to {shortlist.LIMIT} "
-                           f"(default {shortlist.DEFAULT.threshold})")
     long.add_argument("--shortlist-residual", type=float, default=shortlist.DEFAULT.residual,
                       help="probability mass mixed in uniformly over the whole menu, so that every option, "
-                           f"including the eliminated ones, keeps some (default {shortlist.DEFAULT.residual:g})")
+                           f"including the eliminated ones, keeps some; 0 to {shortlist.RESIDUAL_MAX:g} "
+                           f"(default {shortlist.DEFAULT.residual:g})")
     long.add_argument("--shortlist-seed", type=int, default=shortlist.DEFAULT.seed,
                       help="seed for dealing a menu into tournament chunks (default 0)")
     long.add_argument("--embedding-model", default=shortlist.EMBEDDER,
@@ -127,9 +127,8 @@ def shortlist_config(args):
     """The `shortlist.Config` the flags ask for, or None for --shortlist off. Raises ValueError."""
     if args.shortlist == "off":
         return None
-    return shortlist.Config(strategy=args.shortlist, k=args.shortlist_k, threshold=args.shortlist_threshold,
-                            residual=args.shortlist_residual, seed=args.shortlist_seed,
-                            embedder=args.embedding_model, embedder_revision=args.embedding_revision)
+    return shortlist.Config(strategy=args.shortlist, k=args.shortlist_k, residual=args.shortlist_residual,
+                            seed=args.shortlist_seed, embedder=args.embedding_model, embedder_revision=args.embedding_revision)
 
 
 def main():
@@ -144,7 +143,7 @@ def main():
     try:
         decider = Decider(adapter=args.adapter, calibration_map=None if args.no_map else args.map,
                           allow_slow_kernels=args.allow_slow_kernels, name=args.name,
-                          cuda_graphs=not args.no_cuda_graphs, shortlist=config,
+                          cuda_graphs=args.cuda_graphs, shortlist=config,
                           **({"warm_lengths": ()} if args.no_length_warmup else {}))
     except fastpath.SlowKernels as error:
         sys.exit(str(error))  # exit status 1, the message on stderr
@@ -160,7 +159,8 @@ def main():
         print("fast-kernel check passed", flush=True)
     count, seconds = decider.warm_seconds
     print(f"length warm-up: {count} lengths in {seconds:.1f} s", flush=True)
-    for line in graph_lines(decider) or ["cuda graphs: off (--no-cuda-graphs); every request runs eager"]:
+    for line in graph_lines(decider) or ["cuda graphs: off (the default; --cuda-graphs opts in); every request "
+                                         "runs eager, as in 1.1.0"]:
         print(line, flush=True)
     print(config.describe() if config else "shortlist: off; choice questions over 26 options are refused",
           flush=True)

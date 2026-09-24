@@ -9,9 +9,11 @@ JSON prompt with thinking off, and a softmax over only the option letters' rows 
 layer. The prompt and the model are exactly what was evaluated; everything here only changes how
 fast the same numbers come out.
 
-By default the forward is replayed from a CUDA graph captured per length bucket at start-up, which
-removes the host's kernel-launch time; `cuda_graphs=False` (`hopper-serve --no-cuda-graphs`) keeps
-every request on the eager path. Padding to a bucket cannot change an answer (`fastpath.padded`).
+By default every request runs eagerly, exactly as in 1.1.0. `cuda_graphs=True` (`hopper-serve
+--cuda-graphs`) opts in to replaying the forward from a CUDA graph captured per length bucket at
+start-up, which removes the host's kernel-launch time. Padding to a bucket cannot change which
+option wins (`fastpath.padded`), but it changes kernel tiling, so graph-replayed probabilities are
+not bit-identical to eager ones; that is why this compatibility release keeps graphs opt-in.
 
 A choice question with more than 26 options is answered through a shortlist (`shortlist.py`): a
 first stage keeps k options and the same single pass decides among them. Every other request is
@@ -44,7 +46,7 @@ SENTINEL = "⁣USER⁣"  # invisible, never in a request, and no template rule t
 class Decider:
     def __init__(self, adapter=None, calibration_map=MAP, base=BASE, revision=REVISION, name=NAME,
                  device="cuda", attention=None, prefix_cache=False, allow_slow_kernels=False,
-                 warm_lengths=WARM_LENGTHS, cuda_graphs=True, buckets=fastpath.BUCKETS, shortlist=SHORTLIST):
+                 warm_lengths=WARM_LENGTHS, cuda_graphs=False, buckets=fastpath.BUCKETS, shortlist=SHORTLIST):
         if cuda_graphs and prefix_cache:
             raise ValueError("cuda_graphs and prefix_cache are exclusive: the graph replays a full forward")
         from transformers import AutoModelForCausalLM, AutoTokenizer

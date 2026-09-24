@@ -83,12 +83,14 @@ def probs_of(out):
 
 # --- configuration ---------------------------------------------------------------------------------
 def test_the_default_is_the_measured_tournament_at_k_10_over_26_options():
-    assert (DEFAULT.strategy, DEFAULT.size, DEFAULT.threshold, DEFAULT.residual) == ("tournament", 10, 26, 0.05)
+    assert (DEFAULT.strategy, DEFAULT.size, DEFAULT.residual) == ("tournament", 10, 0.05)
+    assert "over 26 options" in DEFAULT.describe()
     assert Config("embedding").size == 26       # the embedding stage is opt-in; its own default k
 
 
-@pytest.mark.parametrize("bad", [{"k": 1}, {"k": 27}, {"k": 0}, {"threshold": 0}, {"threshold": 27},
-                                 {"residual": -0.01}, {"residual": 1.0}, {"strategy": "bm25"}])
+@pytest.mark.parametrize("bad", [{"k": 1}, {"k": 27}, {"k": 0}, {"residual": -0.01}, {"residual": 0.5000001},
+                                 {"residual": 1.0}, {"residual": float("nan")}, {"residual": "0.05"},
+                                 {"residual": True}, {"strategy": "bm25"}])
 def test_a_config_the_readout_cannot_serve_is_refused(bad):
     with pytest.raises(ValueError):
         Config(**bad)
@@ -117,14 +119,50 @@ def test_noul_and_score_questions_never_take_the_shortlist():
     score = {"state": "s", "question": {"type": "score", "criteria": ["x"] * 5}}
     for req in (noul, score):
         example, _ = request.parse(req, large_choice=True)
-        assert not shortlist.applies(Config(threshold=1, k=2), example)
+        assert not shortlist.applies(Config(k=2), example)
 
 
-def test_a_lower_threshold_shortlists_shorter_menus_but_never_one_no_longer_than_k():
-    example, _ = request.parse(systemone(20))
-    assert shortlist.applies(Config(threshold=10, k=5), example)
-    assert not shortlist.applies(Config(threshold=10, k=20), example)  # keeping all 20 is the single pass
-    assert not shortlist.applies(Config(threshold=20, k=5), example)
+@pytest.mark.parametrize("config", [Config(k=2), Config(k=5), Config(k=26), Config("embedding", k=2),
+                                    Config(residual=0.0), Config(residual=shortlist.RESIDUAL_MAX), Config(seed=9)])
+@pytest.mark.parametrize("n", [2, 10, 20, 26])
+def test_no_configuration_sends_a_menu_of_26_or_fewer_to_the_shortlist(config, n):
+    example, _ = request.parse(systemone(n), large_choice=True)
+    assert not shortlist.applies(config, example)
+    on, off = FakeDecider(config=config, prefer=names(n)[-1]), FakeDecider(config=None, prefer=names(n)[-1])
+    a, b = on.score(systemone(n)), off.score(systemone(n))
+    assert on.passes == off.passes == [names(n)] and a == {**b, "seconds": a["seconds"]}
+
+
+def score_as_in_1_1_0(decider, req):
+    """`Decider.score` exactly as tag v1.1.0 has it (hopper_decisions/model.py), minus the clock."""
+    example, key = request.parse(req)
+    ids = decider.encode(example)
+    labels = request.names(example)
+    raw = dict(zip(labels, decider.letter_probs(ids, len(labels))))
+    reply = request.response(key, example["kind"], calibration.apply(decider.map, example, raw), decider.name, len(ids))
+    return {"example": example, "raw": raw, "response": reply, "tokens": len(ids)}
+
+
+@pytest.mark.parametrize("req", [systemone(2), systemone(9), systemone(26), record(26), record(13, names(13)[::-1]),
+                                 {"state": {"a": 1}, "question": {"type": "noul", "instructions": "q",
+                                                                  "criteria": {"true": "t", "false": "f"}}},
+                                 {"state": "s", "question": {"type": "score", "instructions": "q",
+                                                             "criteria": ["lo", "mid", "hi"]}, "labels": ["0", "1", "2"]}])
+@pytest.mark.parametrize("config", [DEFAULT, Config("embedding"), Config(k=2, residual=0.5), None])
+def test_every_valid_request_of_26_options_or_fewer_is_answered_as_1_1_0_answered_it(req, config):
+    mapping = calibration.PerKind({"choice": 0.79, "noul": 0.753, "score": 0.9})
+    now, then = FakeDecider(config=config, prefer="intent 001", mapping=mapping), \
+        FakeDecider(config=None, prefer="intent 001", mapping=mapping)
+    out, reference = now.score(req), score_as_in_1_1_0(then, req)
+    assert json.dumps(out["response"]) == json.dumps(reference["response"])       # byte for byte
+    assert out["raw"] == reference["raw"] and out["tokens"] == reference["tokens"] and now.passes == then.passes
+
+
+def test_there_is_no_threshold_setting_any_more():
+    with pytest.raises(TypeError):
+        Config(threshold=10)
+    with pytest.raises(SystemExit):
+        server.build_parser().parse_args(["--shortlist-threshold", "10"])
 
 
 # --- the pure parts ------------------------------------------------------------------------------------
@@ -161,12 +199,70 @@ def test_spread_with_no_residual_keeps_the_eliminated_labels_at_zero_rather_than
     assert probs == {"a": 1.0, "b": 0.0, "c": 0.0}
 
 
-@pytest.mark.parametrize("residual", [0.0, 0.05, 0.3, 0.9])
+@pytest.mark.parametrize("residual", [0.0, 0.05, 0.3, 0.5])
 def test_the_residual_can_never_make_an_eliminated_label_the_answer(residual):
     labels = names(27)
     probs = shortlist.spread(labels, list(range(26)), [1 / 26] * 26, residual)  # the flattest final pass
     top = max(probs.values())
     assert probs[labels[26]] < top and request.argmax(probs) in labels[:26]
+
+
+def adjacent(x):
+    return math.nextafter(x, math.inf)
+
+
+@pytest.mark.parametrize("residual", [0.0, 0.05, 0.25, 0.5])
+@pytest.mark.parametrize("low", [0.5, 0.4999, 0.45, 0.41, 0.4, 0.37, 0.35, 0.3334])
+def test_a_survivor_one_representable_step_ahead_stays_the_answer(residual, low):
+    """Two survivors one float apart: the mixture (and the reply's normalisation) may round them to
+    the same value, and the harness then breaks the tie on the smaller label, 'a' here. The reply
+    must still name 'z', the final pass's own answer."""
+    high = adjacent(low)
+    rest = max(0.0, 1.0 - low - high)                              # below both
+    labels = ["a", "z", "m"] + [f"x{i:02d}" for i in range(27)]
+    final = [low, high, rest]
+    probs = shortlist.spread(labels, [0, 1, 2], final, residual)
+    assert request.argmax(dict(zip(labels[:3], final))) == "z"
+    reply = request.answer("choice", probs)
+    assert reply["choice"] == "z" == request.argmax(reply["probabilities"])
+    assert reply["probabilities"]["z"] > reply["probabilities"]["a"]
+    assert probs["a"] == pytest.approx((1 - residual) * low + residual / 30, abs=0, rel=1e-15)
+    assert probs["z"] - ((1 - residual) * high + residual / 30) < 1e-15    # moved by a few steps at most
+
+
+@pytest.mark.parametrize("low", [0.4112619510487682, 0.49880694594817043, 0.35934239356892905, 0.4278078018221045])
+def test_at_the_shipped_residual_colliding_neighbours_keep_the_final_answer(low):
+    """Found by search: at r = 0.05 over 30 labels, the plain mixture plus the reply's normalisation
+    rounds these neighbours to one value, and the harness's tie-break would then answer 'a'."""
+    high = adjacent(low)
+    labels = ["a", "z", "m"] + [f"x{i:02d}" for i in range(27)]
+    share = 0.05 / 30
+    plain = {"a": 0.95 * low + share, "z": 0.95 * high + share, "m": 0.95 * max(0.0, 1 - low - high) + share,
+             **{label: share for label in labels[3:]}}
+    assert request.answer("choice", plain)["choice"] == "a"                    # what the review found
+    probs = shortlist.spread(labels, [0, 1, 2], [low, high, max(0.0, 1 - low - high)], 0.05)
+    assert request.answer("choice", probs)["choice"] == "z"
+
+
+def test_the_reviewed_collision_is_resolved():
+    """The review's case: r just under 1 rounded 0.5000000000000001 and 0.5 to the same value. Such
+    an r is now refused, and the correction holds even when the mixture is applied directly."""
+    with pytest.raises(ValueError):
+        Config(residual=math.nextafter(1.0, 0.0))
+    probs = shortlist.spread(["z", "a"], [0, 1], [0.5000000000000001, 0.5], math.nextafter(1.0, 0.0))
+    assert request.answer("choice", probs)["choice"] == "z"
+
+
+def test_the_correction_leaves_an_ordinary_reply_untouched():
+    labels = names(40)
+    final = [0.7] + [0.3 / 9] * 9
+    probs = shortlist.spread(labels, list(range(10)), final, 0.05)
+    assert probs == {name: (0.95 * final[i] if i < 10 else 0.0) + 0.05 / 40 for i, name in enumerate(labels)}
+
+
+def test_an_exact_tie_in_the_final_pass_is_broken_as_the_harness_breaks_it():
+    probs = shortlist.spread(["b", "a", "c"], [0, 1], [0.5, 0.5], 0.05)
+    assert probs["a"] == probs["b"] and request.answer("choice", probs)["choice"] == "a"
 
 
 # --- the request path: long menus -----------------------------------------------------------------------
@@ -255,13 +351,6 @@ def test_the_seed_changes_how_the_menu_is_dealt_not_whether_it_is_deterministic(
     assert a.passes == b.passes and a.passes[0] != c.passes[0]
 
 
-def test_a_lower_threshold_runs_a_one_chunk_qualifier_then_the_final_pass():
-    decider = FakeDecider(config=Config(threshold=10, k=5), prefer="intent 017")
-    out = decider.score(systemone(20))
-    assert [len(p) for p in decider.passes] == [20, 5]
-    assert out["response"]["answers"]["decision"]["choice"] == "intent 017" and len(probs_of(out)) == 20
-
-
 def test_the_record_route_answers_over_its_own_label_order():
     labels = list(reversed(names(30)))
     decider = FakeDecider(prefer="intent 003")
@@ -297,6 +386,60 @@ def test_the_embedding_query_follows_the_models_instruction_format():
     assert embedder.query_text("", "Which intent?").endswith("\nQuery:Which intent?")
 
 
+# --- the context: every prompt the shortlist builds is checked ------------------------------------------
+class ContextDecider(FakeDecider):
+    """A stand-in whose prompt length is its options' description length, with a model context."""
+
+    def __init__(self, context, **kw):
+        super().__init__(**kw)
+        import types
+        self.model = types.SimpleNamespace(config=types.SimpleNamespace(max_position_embeddings=context))
+        self.forwards = 0
+
+    def encode(self, example):
+        super().encode(example)
+        return list(range(5 + sum(len(o["description"].split()) for o in example["options"])))
+
+    def letter_probs(self, ids, count):
+        self.forwards += 1
+        shown = self.passes[-1]
+        win = shown.index(self.prefer) if self.prefer in shown else 0
+        return [0.7 if i == win else 0.3 / (count - 1) for i in range(count)]
+
+
+def long_description_menu(n, long_at, words):
+    labels = names(n)
+    criteria = {label: ("word " * words if i == long_at else "short") for i, label in enumerate(labels)}
+    return {"state": "s", "labels": labels, "question": {"type": "choice", "instructions": "q", "criteria": criteria}}
+
+
+def test_a_chunk_past_the_context_is_refused_before_its_forward_pass():
+    # options 0-25 are short, so the first 26 fit; option 40 alone is past the context
+    decider = ContextDecider(context=200, prefer="intent 040")
+    with pytest.raises(shortlist.TooLong, match="longer than the model's context of 200"):
+        decider.score(long_description_menu(60, 40, 400))
+    assert decider.forwards < len(decider.passes)          # the long chunk never reached the model
+
+
+def test_a_final_pass_past_the_context_is_refused_before_its_forward_pass():
+    # the first 26 options are 10 words each: the seeded chunks hold 12 and 14 of them (at most
+    # 14 * 10 + 12 + 5 = 157 tokens), but a flat qualifier round keeps all 26 (26 * 10 + 5 = 265)
+    labels = names(52)
+    criteria = {label: ("word " * 10 if i < 26 else "short") for i, label in enumerate(labels)}
+    req = {"state": "s", "labels": labels, "question": {"type": "choice", "instructions": "q", "criteria": criteria}}
+    decider = ContextDecider(context=200, config=Config(k=26), prefer="intent 000")
+    decider.letter_probs = lambda ids, count: [1.0 / count] * count            # a flat qualifier round
+    with pytest.raises(shortlist.TooLong):
+        decider.score(req)
+    assert len(decider.passes) == 3                           # two chunks read, the final pass refused
+
+
+def test_menus_that_fit_are_unaffected_by_the_context_check():
+    decider = ContextDecider(context=10_000, prefer="intent 040")
+    out = decider.score(long_description_menu(60, 40, 400))
+    assert out["response"]["answers"]["decision"]["choice"] == "intent 040"
+
+
 # --- refusals stay refusals --------------------------------------------------------------------------
 def test_with_the_shortlist_off_a_long_menu_is_refused_as_before():
     with pytest.raises(ValueError, match="27 options, more than 26 letters"):
@@ -317,6 +460,52 @@ def test_malformed_long_requests_are_still_refused_with_the_shortlist_on(bad):
     with pytest.raises((ValueError, KeyError, TypeError)):
         decider.score(bad)
     assert decider.passes == []                                     # refused before any forward pass
+
+
+def test_a_repeated_label_is_refused_rather_than_collapsed_on_the_long_menu_record_route():
+    """The review's case: 26 distinct labels plus a repeated one, against 26 criteria keys. The sets
+    agree, so it used to parse as 27 options and reply with 26 keys."""
+    labels = names(26) + ["intent 000"]
+    req = {"state": "s", "labels": labels,
+           "question": {"type": "choice", "instructions": "q", "criteria": {n: n for n in names(26)}}}
+    decider = FakeDecider()
+    with pytest.raises(ValueError, match="labels repeat"):
+        decider.score(req)
+    with pytest.raises(ValueError, match="labels repeat"):
+        FakeDecider(config=None).score({**req, "labels": names(5) + ["intent 000"],
+                                        "question": {**req["question"], "criteria": {n: n for n in names(5)}}})
+    assert decider.passes == []
+
+
+@pytest.mark.parametrize("labels", [names(29) + [7], names(29) + [None], [0, 1, 2], "intent 000", {"a": 1}])
+def test_a_label_that_is_not_a_string_is_refused(labels):
+    criteria = {str(label): "x" for label in (labels if isinstance(labels, list) else [labels])}
+    req = {"state": "s", "labels": labels, "question": {"type": "choice", "instructions": "q", "criteria": criteria}}
+    with pytest.raises(ValueError, match="labels are a list of strings"):
+        FakeDecider().score(req)
+
+
+def test_score_labels_must_be_strings_too():
+    req = {"state": "s", "labels": [0, 1, 2], "question": {"type": "score", "instructions": "q",
+                                                           "criteria": ["low", "mid", "high"]}}
+    with pytest.raises(ValueError, match="labels are a list of strings"):
+        FakeDecider().score(req)
+    with pytest.raises(ValueError, match="4 score labels for 3 levels"):
+        FakeDecider().score({**req, "labels": ["0", "1", "2", "3"]})
+
+
+@pytest.mark.parametrize("bad", [
+    [], "a string", 7, None,                                                          # not an object at all
+    {"state": "s", "question": []},                                                   # the review's case
+    {"state": "s", "question": "choice"},
+    {"state": "s", "questions": {"decision": []}},
+    {"state": "s", "question": {"type": "choice", "instructions": "q", "criteria": ["a", "b"]}},
+    {"state": "s", "question": {"type": "score", "instructions": "q", "criteria": {"a": "b"}}},
+    {"state": "s", "question": {"type": "noul", "instructions": "q", "criteria": ["yes", "no"]}},
+])
+def test_a_body_of_the_wrong_shape_is_a_value_error_not_a_crash(bad):
+    with pytest.raises(ValueError):
+        FakeDecider().score(bad)
 
 
 # --- the HTTP server -----------------------------------------------------------------------------------
@@ -353,7 +542,9 @@ def test_the_server_answers_a_77_option_menu_over_every_label(served):
 
 def test_the_server_still_answers_malformed_requests_with_a_400(served):
     url, decider = served
-    for bad in ({**record(30), "labels": names(29)}, {"state": "s", "question": {"type": "rank"}}):
+    for bad in ({**record(30), "labels": names(29)}, {"state": "s", "question": {"type": "rank"}},
+                {"state": "s", "question": []}, {**record(27), "labels": names(26) + ["intent 000"]},
+                {**record(27), "labels": names(26) + [26]}, []):
         status, body = post(f"{url}/v1/systemone", bad)
         assert status == 400 and body["ok"] is False and body["error"].startswith("ValueError")
         status, body = post(f"{url}/run", {"task": bad})
@@ -366,7 +557,8 @@ def test_the_flags_default_to_the_tournament_and_off_restores_the_refusal():
     assert server.shortlist_config(args) == DEFAULT
     assert server.shortlist_config(server.build_parser().parse_args(["--shortlist", "off"])) is None
     args = server.build_parser().parse_args(["--shortlist", "embedding", "--shortlist-k", "20",
-                                             "--shortlist-threshold", "12", "--shortlist-residual", "0.02"])
-    assert server.shortlist_config(args) == Config("embedding", k=20, threshold=12, residual=0.02)
-    with pytest.raises(ValueError):
-        server.shortlist_config(server.build_parser().parse_args(["--shortlist-k", "30"]))
+                                             "--shortlist-residual", "0.02"])
+    assert server.shortlist_config(args) == Config("embedding", k=20, residual=0.02)
+    for bad in (["--shortlist-k", "30"], ["--shortlist-residual", "0.9"]):
+        with pytest.raises(ValueError):
+            server.shortlist_config(server.build_parser().parse_args(bad))

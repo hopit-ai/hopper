@@ -227,10 +227,24 @@ def graphs_decider(status, plan=None, timing=None):
         graph_plan=plan if plan is not None else {b: 1 for b, s in status.items() if s == "captured"})
 
 
-def test_cuda_graphs_are_on_unless_turned_off():
+def test_cuda_graphs_are_opt_in_so_replies_stay_those_of_1_1_0():
+    import inspect
+
     from hopper_decisions import server
-    assert server.build_parser().parse_args([]).no_cuda_graphs is False
-    assert server.build_parser().parse_args(["--no-cuda-graphs"]).no_cuda_graphs is True
+    from hopper_decisions.jevbench_adapter import HopperDirectAdapter
+    assert server.build_parser().parse_args([]).cuda_graphs is False
+    assert server.build_parser().parse_args(["--cuda-graphs"]).cuda_graphs is True
+    with pytest.raises(SystemExit):
+        server.build_parser().parse_args(["--no-cuda-graphs"])
+    assert inspect.signature(HopperDirectAdapter).parameters["cuda_graphs"].default is False
+    # model.py imports torch, which the tests do without: read Decider's default from its source
+    import ast
+    from pathlib import Path
+    tree = ast.parse((Path(server.__file__).parent / "model.py").read_text())
+    init, = [f for c in tree.body if isinstance(c, ast.ClassDef) and c.name == "Decider"
+             for f in c.body if isinstance(f, ast.FunctionDef) and f.name == "__init__"]
+    defaults = dict(zip([a.arg for a in init.args.args][-len(init.args.defaults):], init.args.defaults))
+    assert ast.literal_eval(defaults["cuda_graphs"]) is False
 
 
 def test_the_start_up_log_names_the_buckets_in_use_and_every_fallback():

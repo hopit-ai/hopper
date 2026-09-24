@@ -3,7 +3,7 @@ calibration map, shape the reply. `Decider.score` is `score` below. Imports no M
 whole path is tested with a stand-in decider that has no weights.
 
 A request the ordinary path can read -- any noul or score question, and a choice question with at
-most `threshold` options (26 by default) -- takes one forward pass, exactly as in 1.1.0. A choice
+most 26 options -- takes one forward pass, exactly as in 1.1.0; no setting changes that. A choice
 question with more options goes to the shortlist (`shortlist.py`) when one is configured, and is
 refused as before when `shortlist=None`.
 """

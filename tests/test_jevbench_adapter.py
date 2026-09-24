@@ -255,6 +255,65 @@ def test_an_over_context_prompt_is_a_422():
     assert "RuntimeError" in res.error       # the real error is reported, not the diagnosis
 
 
+class DescribedDecider(FakeDecider):
+    """A prompt's length is its options' description words, so one long option makes one long chunk."""
+
+    def encode(self, example):
+        self.shown.append(request.names(example))
+        return list(range(8 + sum(len(o["description"].split()) for o in example["options"] or [])))
+
+
+def long_option_task(n=60, long_at=40, words=400):
+    task = choice_task(n)
+    task.question["criteria"][f"opt{long_at}"] = "word " * words
+    return task
+
+
+def test_a_long_menu_chunk_past_the_context_is_a_422_before_its_forward():
+    # options 0-25 are short, so the first 26 fit; the seeded chunk holding option 40 does not
+    decider = DescribedDecider(context=200)
+    res = adapter(decider).run(long_option_task())
+    assert res.ok is False and res.status == 422 and "TooLong" in res.error and "context of 200" in res.error
+
+
+def test_the_diagnosis_checks_the_chunks_actually_dealt_not_the_first_26_options():
+    """A model error on a long menu: the old diagnosis encoded options[:26], which all fit, and
+    returned no status. Every seeded chunk is now checked, and the one holding option 40 does not fit."""
+    decider = DescribedDecider(fail=RuntimeError("index out of range"), context=200)
+    res = adapter(decider).run(long_option_task())
+    assert res.ok is False and res.status == 422 and "RuntimeError" in res.error
+    fits = DescribedDecider(fail=RuntimeError("index out of range"), context=10_000)
+    assert adapter(fits).run(long_option_task()).status is None           # a real fault still counts
+
+
+def test_a_repeated_label_on_a_long_menu_is_a_422_not_a_collapsed_reply():
+    task = choice_task(26)
+    task.labels = task.labels + ["opt0"]
+    decider = FakeDecider()
+    res = adapter(decider).run(task)
+    assert res.ok is False and res.status == 422 and "labels repeat" in res.error and decider.shown == []
+
+
+@pytest.mark.parametrize("question", [
+    {"type": "choice", "criteria": {"a": "x", "b": "y"}},                  # no instructions
+    {"instructions": "q", "criteria": {"a": "x", "b": "y"}},               # no type
+    [],                                                                    # not an object
+])
+def test_a_task_the_adapter_cannot_even_read_is_a_422_not_an_escaped_exception(question):
+    task = Task(id="m-1", state="s", labels=["a", "b"], question=question)
+    decider = FakeDecider()
+    res = adapter(decider).run(task)
+    assert res.ok is False and res.status == 422 and res.error.startswith("malformed task:")
+    assert res.request_body == {"id": "m-1"} and decider.calls == []
+
+
+def test_a_question_of_the_wrong_shape_is_a_422():
+    task = Task(id="m-2", state="s", labels=["a", "b"], question={"type": "choice", "instructions": "q",
+                                                                  "criteria": ["a", "b"]})
+    res = adapter().run(task)
+    assert res.ok is False and res.status == 422 and "ValueError" in res.error
+
+
 def test_a_cuda_fault_has_no_status_so_three_in_a_row_stop_the_run():
     res = adapter(FakeDecider(fail=RuntimeError("CUDA error: device-side assert"))).run(choice_task())
     assert res.ok is False and res.status is None and "CUDA" in res.error
@@ -302,8 +361,11 @@ def test_load_builds_the_decider_the_server_builds(monkeypatch):
                         types.SimpleNamespace(Decider=lambda **kw: built.append(kw) or FakeDecider()))
     HopperDirectAdapter(endpoint="/adapters/x").load()
     assert built[0] == {"adapter": "/adapters/x", "calibration_map": MAP, "name": "hopper",
-                        "allow_slow_kernels": False, "cuda_graphs": True,
-                        "shortlist": SHORTLIST}  # map shipped, guard, warm-up, graphs and the shortlist on
+                        "allow_slow_kernels": False, "cuda_graphs": False,
+                        "shortlist": SHORTLIST}  # map shipped, guard, warm-up and the shortlist on; graphs opt-in
+    built.clear()
+    HopperDirectAdapter(cuda_graphs=True).load()
+    assert built[0]["cuda_graphs"] is True
     built.clear()
     HopperDirectAdapter(shortlist=None).load()
     assert built[0]["shortlist"] is None     # long menus refused, as 1.1.0 did

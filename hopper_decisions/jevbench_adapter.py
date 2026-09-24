@@ -7,10 +7,11 @@ decision costs one forward pass and no HTTP hop:
       --adapter hopper_direct --endpoint HopitAI/hopper --cost-basis self_hosted_gpu
 
 It is the same code path as `hopper-serve`, not a second one: `Decider` is built with the shipped
-calibration map, the fast-kernel guard on, the length warm-up on and CUDA graphs on, exactly as
-`hopper_decisions.server` builds it, and every decision goes through `Decider.score` and
-`request.harness_probs`, exactly as the server's `POST /run` route does. The answers are therefore
-identical to the served ones, down to the float.
+calibration map, the fast-kernel guard on, the length warm-up on and CUDA graphs off (opt-in on
+both routes: `cuda_graphs=True` here, `--cuda-graphs` there), exactly as `hopper_decisions.server`
+builds it, and every decision goes through `Decider.score` and `request.harness_probs`, exactly as
+the server's `POST /run` route does. The answers are therefore identical to the served ones, down
+to the float.
 
 `JEVBENCH_WARM_LOAD=1` makes the harness call `load()` before it starts the clock (jevbench/cli.py),
 which is the leaderboard's convention for in-process entrants: weights loaded and kernels warm, like
@@ -19,8 +20,9 @@ which is not a number anyone should publish.
 
 Failure policy, following the runner's stop rule (jevbench/runner.py): anything the contract cannot
 represent -- a question type we do not serve, a malformed question, a score question with more than
-26 levels, a prompt longer than the model's context, and a choice question with more than 26 options
-when the shortlist is turned off (`shortlist=None`) -- comes back as `status = 422`, which the
+26 levels, a prompt longer than the model's context (for a long menu: any of its tournament chunks
+or its final pass), and a choice question with more than 26 options when the shortlist is turned
+off (`shortlist=None`) -- comes back as `status = 422`, which the
 runner records as unprocessable and exempts from the three-consecutive-failure abort. A load failure
 or a CUDA fault comes back with no status and does count, because three of those in a row is a real
 fault and stopping is right.
@@ -34,8 +36,8 @@ from __future__ import annotations
 
 import time
 
-from hopper_decisions import HF_REPO, MAP, NAME, request
-from hopper_decisions.shortlist import DEFAULT as SHORTLIST, LIMIT
+from hopper_decisions import HF_REPO, MAP, NAME, request, shortlist as long_menus
+from hopper_decisions.shortlist import DEFAULT as SHORTLIST
 
 _DecisionResult = None
 
@@ -56,7 +58,7 @@ class HopperDirectAdapter:
 
     def __init__(self, endpoint=None, model=None, key_env="", timeout_s=None,
                  price_input_per_m=None, price_output_per_m=None, revision=None,
-                 calibration_map=MAP, allow_slow_kernels=False, cuda_graphs=True, shortlist=SHORTLIST):
+                 calibration_map=MAP, allow_slow_kernels=False, cuda_graphs=False, shortlist=SHORTLIST):
         # `endpoint` is the LoRA adapter: a Hugging Face repo id or a local directory, the same
         # value `hopper-serve --adapter` takes. `revision` optionally repins the base model.
         self.endpoint = endpoint or HF_REPO
@@ -117,7 +119,13 @@ class HopperDirectAdapter:
 
     def run(self, task):
         res = _result(adapter=self.name, ok=False, probs_source="native", model=self.model)
-        body = self.build_request(task)
+        try:
+            body = self.build_request(task)
+        except Exception as error:  # noqa: BLE001 - a record we cannot even read is malformed input
+            res.request_body = {"id": getattr(task, "id", None)}
+            res.status = 422
+            res.error = f"malformed task: {type(error).__name__}: {str(error)[:300]}"
+            return res
         res.request_body = {"id": task.id, "question": body["question"], "labels": body["labels"]}
         try:
             decider = self.load()
@@ -161,18 +169,26 @@ class HopperDirectAdapter:
         wrong answer and not toward its abort rule; None when it looks like a fault of ours, which
         should be allowed to stop the run. Only ever reached on a failure, so its cost is free."""
         if isinstance(error, (ValueError, KeyError, TypeError)):
-            return 422  # request.parse refused it: bad type, missing criteria, too many options
-        try:  # the longest single pass: the whole prompt, or a chunk of 26 options of a long menu
-            example, _ = request.parse(body, large_choice=getattr(decider, "shortlist", None) is not None)
-            if example["options"] and len(example["options"]) > LIMIT:
-                example = {**example, "options": example["options"][:LIMIT]}
-            return 422 if len(decider.encode(example)) > self.context_limit(decider) else None
+            # request.parse refused it (bad type, missing criteria, too many options), or a
+            # shortlisted menu's chunk or final prompt was longer than the context (shortlist.TooLong)
+            return 422
+        try:  # every prompt the request actually builds: the whole one, or each tournament chunk
+            config = getattr(decider, "shortlist", None)
+            example, _ = request.parse(body, large_choice=config is not None)
+            if long_menus.applies(config, example):
+                # the final pass's prompt is checked before its forward inside shortlist.decide
+                groups = long_menus.tournament_groups(example, config) if config.strategy == "tournament" else []
+                prompts = [long_menus.subset(example, group) for group in groups]
+            else:
+                prompts = [example]
+            limit = self.context_limit(decider)
+            return 422 if any(len(decider.encode(prompt)) > limit for prompt in prompts) else None
         except Exception:  # noqa: BLE001 - the diagnosis must never replace the real error
             return None
 
     @staticmethod
     def context_limit(decider):
-        return getattr(decider.model.config, "max_position_embeddings", 0) or float("inf")
+        return long_menus.context_limit(decider) or float("inf")
 
     def reserve_estimate(self, task):
         return 0.0  # our own GPU: the harness's ledger has nothing to bill

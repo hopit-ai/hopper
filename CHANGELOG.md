@@ -1,38 +1,55 @@
 # Changes
 
-## Unreleased (branch `inference-next`)
+## 1.1.1 (unreleased)
 
-Same adapter weights and calibration map as 1.1.0. Same prompt and same wire format. Every question
-with 26 options or fewer — every JevBench item — is answered exactly as in 1.1.0.
+1.1.1 (unreleased): long menus (> 26 options) via a disclosed two-stage shortlist; ≤ 26 options
+unchanged; same weights and calibration map as 1.1.0; research and demo use (see NOTICE).
 
-- **Long menus: choice questions with more than 26 options are answered, through a shortlist.**
-  Until now they were refused (HTTP 400, or 422 in-process). A first stage cuts the menu to k
-  options and the ordinary single pass decides among them, with the same prompt, readout and
-  calibration map. The default first stage is a tournament: the menu is dealt into
+A serving-only compatibility release. Same adapter weights and calibration map as 1.1.0, byte for
+byte, and the same prompt and wire format. **Every valid question with 26 options or fewer — every
+JevBench item — gets the reply 1.1.0 gives it, byte for byte:** the same single eager forward pass,
+the same readout, the same map. No setting routes such a question anywhere else.
+
+- **Long menus: choice questions with more than 26 options are answered, through a disclosed
+  shortlist.** Until now they were refused (HTTP 400, or 422 in-process). A first stage cuts the
+  menu to k options and the ordinary single pass decides among them, with the same prompt, readout
+  and calibration map. The default first stage is a tournament: the menu is dealt into
   `ceil(n / 26)` chunks with a fixed seed, each chunk is read by the ordinary single pass, and the
   10 options that score best in their chunks go to the final pass (`ceil(n / 26) + 1` passes in
   all). The reply carries a probability for every option in the request: the final distribution
   mixed with a uniform distribution over the whole menu at weight 0.05, so an eliminated option gets
-  0.05 / n and the winner can never change. An embedding first stage (`Qwen/Qwen3-Embedding-0.6B`,
-  Apache-2.0, pinned revision, option embeddings cached) is available behind
-  `--shortlist embedding` and is off by default until measured. `--shortlist off` (or
+  0.05 / n. The reply's answer is always the final pass's own answer, even where floating-point
+  rounding would otherwise tie two survivors one representable step apart (the winner is then
+  raised by that step). `--shortlist-residual` takes 0 to 0.5. Every prompt a long menu builds —
+  each chunk and the final pass — is checked against the model's context before its forward pass,
+  and refused (400, or 422 in-process) if it does not fit. An embedding first stage
+  (`Qwen/Qwen3-Embedding-0.6B`, Apache-2.0, pinned revision, option embeddings cached) is available
+  behind `--shortlist embedding` and is off by default until measured. `--shortlist off` (or
   `shortlist=None`) restores the 1.1.0 refusal. Accuracy with the adapter and latency on long menus
   are not yet measured; see `README.md`, "Long menus". New modules: `shortlist.py`, `embedder.py`,
   and `pipeline.py`, which now holds the request path `Decider.score` runs, so it is tested without
   a GPU.
 
-- **CUDA graphs, on by default.** At start-up, after the fast-kernel guard and the length
-  warm-up, the forward pass is captured into one CUDA graph per length bucket, from 128 to 4,096
-  tokens. Requests are right-padded to the next bucket and replayed. Each bucket is timed against
-  eager at start-up and used only for the request lengths where it measured faster. The graphs
-  share one memory pool, and a bucket that would not leave room for a long eager request is
-  skipped. `hopper-serve --no-cuda-graphs` (or `Decider(cuda_graphs=False)`,
-  `HopperDirectAdapter(cuda_graphs=False)`) restores the 1.1.0 behaviour.
-  On an A10G: standard-length p50 / p95 54.3 / 55.0 → 41.7 / 44.8 ms, and judge-length items
-  unchanged (113.0 / 188.8 → 113.3 / 190.1 ms), because at those lengths the forward is bound by
-  GPU work, not kernel launches. 265 / 265 top answers identical to eager, max |Δp| 0.031.
-  Start-up adds 23.5 s, and graph memory is at most 1.3 GiB; 16 GB cards still work. Details in
+- **Stricter checks on malformed requests.** The request and its question must be JSON objects,
+  choice criteria an object, score criteria a list, and labels a list of distinct strings. A
+  repeated label used to collapse two options into one probability key, and a body such as
+  `{"question": []}` used to crash the handler instead of returning 400. These now get a 400 over
+  HTTP and a 422 in-process, as other malformed requests do; the in-process adapter also returns
+  422, instead of raising, for a task record it cannot read at all (no `type` or `instructions`).
+  Only requests that were malformed are affected.
+
+- **CUDA graphs, opt-in (`--cuda-graphs`).** At start-up, after the fast-kernel guard and the length
+  warm-up, the forward pass can be captured into one CUDA graph per length bucket, from 128 to
+  4,096 tokens, and replayed where each bucket measured faster than eager. It is off by default in
+  this release, because a graph-replayed forward is not bit-identical to the eager one: on our
+  115-item development half, top answers were 115 / 115 identical but only 81 of 115 replies were
+  bitwise identical, with probabilities moving by up to 0.031. `hopper-serve --cuda-graphs`,
+  `Decider(cuda_graphs=True)` or `HopperDirectAdapter(cuda_graphs=True)` turns it on. Details in
   `README.md`, "CUDA graphs".
+
+- **Research and demo use.** The NOTICE, model card and README now say that the adapter weights
+  are offered for research and demo use only, because of the RACE training-data terms (see
+  `NOTICE` and `MODEL_CARD.md`), as on the main branch.
 
 ## 1.1.0
 

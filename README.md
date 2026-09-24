@@ -149,7 +149,10 @@ hundreds of tools. Hopper now answers them in two stages:
 
 A 77-option menu costs 3 + 1 = 4 forward passes and a 150-option menu 6 + 1 = 7. Every pass is
 counted in `usage.input_tokens`. Nothing changes for a question with 26 options or fewer, which is
-every JevBench item: it takes the same single pass as in 1.1.0 and gets the same answer.
+every JevBench item: it takes the same single eager pass as in 1.1.0 and gets the same reply, byte
+for byte, and no setting sends it to the shortlist. Each chunk and the final pass is checked against
+the model's context before it runs; a menu whose prompt does not fit is refused (400, or 422
+in-process).
 
 **Every option gets a probability, not just the k survivors.** The reply is the final pass's
 (calibrated) distribution mixed with a small uniform distribution over the whole menu:
@@ -160,8 +163,11 @@ p(option) =                           r / n     if the first stage eliminated it
 ```
 
 with `r = 0.05` by default and `n` the number of options in the request. The probabilities sum to 1
-and every label the request sent is in the reply, with positive mass. Because the mixture adds the
-same amount to every label, it can never change which option wins. Together the eliminated options
+and every label the request sent is in the reply, with positive mass. The mixture adds the same
+amount to every label, so it does not change which option wins. In floating point, two survivors one
+representable step apart can round to the same value, and the harness would then break the tie on
+the label; so the reply is checked exactly as it is normalised and, only in that case, the final
+pass's winner is raised by that one step. The answer is always the final pass's own answer. Together the eliminated options
 get `r (n - k) / n`, which is meant to be the probability that the first stage threw away the right
 answer. Zero would declare that impossible, and any proper score (log loss above all) punishes that
 without bound when it happens. Too much would take confidence away from every right answer that
@@ -169,7 +175,10 @@ survived. 0.05 comes from the one measurement we have, below: with k = 10 the to
 right answer on 4.0 % of CLINC-150 items and 15.2 % of Banking77 items, and 0.05 puts 4.7 % and
 4.4 % on the eliminated options there. It is the low end of what was measured, and it is to be
 refitted as `1 - recall@k` on held-out long menus with the adapter, never tuned on a benchmark.
-`--shortlist-residual 0` gives the eliminated options exactly 0.0; they are still listed.
+`--shortlist-residual` takes any value from 0 to 0.5, so the final pass always carries at least
+half the mass. `--shortlist-residual 0` gives the eliminated options exactly 0.0; they are still
+listed. Labels must be distinct strings: a repeated label is refused rather than collapsed into one
+probability key.
 
 The calibration map was fitted on single-pass distributions over at most 26 options, so it is
 applied to the final pass, before the mixture, and never to the whole menu.
@@ -191,8 +200,7 @@ It stays off by default until it has been measured against the tournament.
 | --- | --- | --- |
 | `--shortlist` | `tournament` | `tournament`, `embedding`, or `off` (refuse menus over 26 options, as 1.1.0 did) |
 | `--shortlist-k` | 10 (tournament), 26 (embedding) | options in the final pass, 2 to 26 |
-| `--shortlist-threshold` | 26 | shortlist choice questions with more options than this, 1 to 26 |
-| `--shortlist-residual` | 0.05 | `r` above, in [0, 1) |
+| `--shortlist-residual` | 0.05 | `r` above, 0 to 0.5 |
 | `--shortlist-seed` | 0 | how the tournament deals its chunks |
 | `--embedding-model`, `--embedding-revision` | as above | the embedding model, for `--shortlist embedding` |
 
@@ -226,7 +234,7 @@ answers as a measured method on an unmeasured adapter.
 ## GPU and memory
 
 You need one CUDA GPU with 16 GB or more. The bf16 weights take about 9 GB, and the adapter is
-merged into them at load. The CUDA graphs (below) add at most 1.3 GiB. On an A10G the server used
+merged into them at load. The CUDA graphs (below, opt-in) add at most 1.3 GiB. On an A10G the server used
 10.8 GiB of device memory in total after serving every item. With the card limited to what a
 16 GB card reports, peak use was 11.4 GiB. The optional embedding stage for long menus adds about
 1.2 GB. The longest public item we ran was 3,708 tokens. We tested on an A10G,
@@ -247,11 +255,19 @@ kernel before the first request. Otherwise the first request past each 2,048-tok
 pay about 10 s once. After them the server also runs 16 forwards at lengths spread between 64 and
 2,048 tokens. This absorbs per-length first-use costs seen on an H100, and it cannot change any
 answer. `--no-length-warmup` turns it off. Start-up takes about a minute once the weights are local,
-plus about 25 s for the CUDA graphs.
+plus about 25 s for the CUDA graphs if `--cuda-graphs` is given.
 
-## CUDA graphs (on by default)
+## CUDA graphs (opt-in: `--cuda-graphs`)
 
-After the guard and the warm-up, the server captures the forward pass into one CUDA graph per
+**Off by default in 1.1.1.** This release is a compatibility release whose replies to questions of
+26 options or fewer are byte-identical to 1.1.0's, and a graph-replayed forward is not: the padded
+shape changes the GPU's kernel tiling, so probabilities move in the last digits (top answers were
+265 / 265 identical in the measurement below, but only 81 of the 115 development-half replies were
+bitwise identical, and the largest probability change was 0.031). Turn graphs on with
+`hopper-serve --cuda-graphs`, `Decider(cuda_graphs=True)` or `HopperDirectAdapter(cuda_graphs=True)`
+when latency matters more than bit-for-bit agreement with 1.1.0.
+
+With `--cuda-graphs`, after the guard and the warm-up, the server captures the forward pass into one CUDA graph per
 length bucket: 128, 160, 192, 224, 256, 320, 384, 448, 512, 640, 768, 896, 1024, 1280, 1536,
 2048, 3072 and 4096 tokens. A request is right-padded to the next bucket and the graph is
 replayed, which removes the host's kernel-launch time. The padding cannot change an answer: the
@@ -261,7 +277,7 @@ counted from the first token, so they do not move. Requests over 4,096 tokens ru
 A graph only helps a forward whose time goes into kernel launches, and padded tokens are real
 GPU work. So at start-up each bucket's replay is timed against eager forwards at both ends of its
 range, and the graph serves only the request lengths where it measured at least 2 % faster.
-Every other request runs eager, exactly as with `--no-cuda-graphs`. On an A10G that means graphs
+Every other request runs eager, exactly as without `--cuda-graphs`. On an A10G that means graphs
 up to about 500 tokens (plus a sliver at 1,249-1,280). Above that the forward is bound by GPU
 work, and the replay is no faster than eager. A faster GPU stays launch-bound to longer prompts
 and keeps more buckets. The start-up log prints which buckets are in use, from which length, and
@@ -275,15 +291,16 @@ early rather than failing, and the log says where.
 Measured on an A10G over our 115-item development half and 150 of our own judge-length items
 (405-1,419 tokens, mean 663). Numbers are p50 / p95 in ms, in-process:
 
-| | eager (`--no-cuda-graphs`) | CUDA graphs |
+| | eager (the default) | CUDA graphs (`--cuda-graphs`) |
 | --- | ---: | ---: |
 | standard and easy items (mean 191 tokens) | 54.3 / 55.0 | 41.7 / 44.8 |
 | judge-length items (mean 663 tokens) | 113.0 / 188.8 | 113.3 / 190.1 |
 
-Answers: 265 / 265 top answers identical with and without graphs. The largest probability change
-is 0.031, which is the size of the difference between the serving path and our evaluation path
-with no graphs at all. The same holds with the card limited to 16 GB. Capture takes 23.5 s on the
-A10G. `--no-cuda-graphs` turns graphs off. The in-process adapter takes `cuda_graphs=False`.
+Answers: 265 / 265 top answers identical with and without graphs; 81 of the 115 development-half
+replies and 146 of the 150 judge-length replies were bitwise identical. The largest probability
+change is 0.031, which is the size of the difference between the serving path and our evaluation
+path with no graphs at all. The same holds with the card limited to 16 GB. Capture takes 23.5 s on
+the A10G. The in-process adapter takes `cuda_graphs=True` to turn graphs on.
 
 ## Measured latency
 
@@ -312,6 +329,8 @@ pip install -e ".[test]" && pytest     # no GPU, no network
 
 ## Changes
 
-`CHANGELOG.md`. The next release (in development) turns on CUDA graphs by default, with the same
-answers, and answers choice questions with more than 26 options through a shortlist. 1.1.0 adds the in-process route above and replaces the calibration map with one
+`CHANGELOG.md`. 1.1.1 (unreleased, this branch) answers choice questions with more than 26
+options through a disclosed shortlist and leaves every question of 26 options or fewer exactly as
+1.1.0 answers it, with the same weights and calibration map; CUDA graphs are available but opt-in.
+It is for research and demo use (see `NOTICE`). 1.1.0 adds the in-process route above and replaces the calibration map with one
 temperature per answer type; the adapter weights are unchanged from 1.0.0, and so is every answer.

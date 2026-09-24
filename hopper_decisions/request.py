@@ -46,7 +46,13 @@ def parse(request, large_choice=False):
 
     More than 26 options is one: the readout has one letter per option. `large_choice=True` lets a
     choice question past that limit through, for the shortlist (`shortlist.py`) to cut down before
-    the readout; every other check is the same, and a score question is still held to 26 levels."""
+    the readout; every other check is the same, and a score question is still held to 26 levels.
+
+    The shapes are checked before anything is read from them: the request and its question are
+    objects, choice criteria an object and score criteria a list, and labels a list of distinct
+    strings. A repeated label would collapse two options into one probability key."""
+    if not isinstance(request, dict):
+        raise ValueError(f"a request is a JSON object, not {type(request).__name__}")
     if "questions" in request:
         questions = request["questions"]
         if not isinstance(questions, dict) or len(questions) != 1:
@@ -57,6 +63,8 @@ def parse(request, large_choice=False):
         key, question, labels = "decision", request["question"], request.get("labels")
     else:
         raise ValueError("request has neither 'questions' nor 'question'")
+    if not isinstance(question, dict):
+        raise ValueError(f"a question is a JSON object, not {type(question).__name__}")
     kind, criteria = question.get("type"), question.get("criteria")
     if kind not in KINDS:
         raise ValueError(f"unsupported question type {kind!r}")
@@ -65,17 +73,29 @@ def parse(request, large_choice=False):
     policy, options = POLICY, None
     if kind == "noul":  # the rubric has no option to sit on, so it goes in the policy
         criteria = criteria or {}
+        if not isinstance(criteria, dict):
+            raise ValueError("noul criteria are an object with 'true' and 'false'")
         policy = f"{POLICY}\ntrue: {criteria.get('true', 'yes')}\nfalse: {criteria.get('false', 'no')}"
     else:
         if not criteria:
             raise ValueError(f"a {kind} question needs criteria")
+        if kind == "choice" and not isinstance(criteria, dict):
+            raise ValueError("choice criteria are an object of label: description")
+        if kind == "score" and not isinstance(criteria, list):
+            raise ValueError("score criteria are a list of level descriptions")
         if labels is None:  # a /v1/systemone body carries no labels: they are the criteria's keys or levels
             labels = list(criteria) if kind == "choice" else [str(i) for i in range(len(criteria))]
+        if not isinstance(labels, (list, tuple)) or not all(isinstance(label, str) for label in labels):
+            raise ValueError("labels are a list of strings")
+        if len(set(labels)) != len(labels):
+            raise ValueError(f"labels repeat: {len(labels)} labels, {len(set(labels))} distinct")
         if kind == "choice" and set(labels) != set(criteria):
             raise ValueError("choice labels and criteria keys differ")
+        if kind == "score" and len(labels) > len(criteria):
+            raise ValueError(f"{len(labels)} score labels for {len(criteria)} levels")
         if len(labels) > len(LETTERS) and not (large_choice and kind == "choice"):
             raise ValueError(f"{len(labels)} options, more than {len(LETTERS)} letters")
-        options = options_for(question, [str(label) for label in labels])
+        options = options_for(question, list(labels))
     return {"kind": kind, "policy": policy, "document": document(request["state"]),
             "question": question.get("instructions", ""), "options": options}, key
 
