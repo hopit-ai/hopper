@@ -11,6 +11,12 @@ Base model
   https://huggingface.co/Qwen/Qwen3.5-4B/blob/main/LICENSE
   The base model's weights are not included here; they are downloaded from the Hugging Face Hub.
 
+Optional embedding model
+  `hopper-serve --shortlist embedding` (off by default) uses Qwen/Qwen3-Embedding-0.6B
+  (https://huggingface.co/Qwen/Qwen3-Embedding-0.6B, revision 97b0c614be4d77ee51c0cef4e5f07c00f9eb65b3),
+  Copyright Alibaba Cloud, licensed under the Apache License, Version 2.0. Its weights are not
+  included here; they are downloaded from the Hugging Face Hub only when that option is used.
+
 Prompt layout
   The JSON prompt layout in hopper_decisions/prompt.py re-implements the layout of SemIf's
   core.direct_messages (https://github.com/TheoLeeCJ/SemIf, MIT, Copyright (c) 2026 TheoLeeCJ).

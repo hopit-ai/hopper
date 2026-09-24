@@ -7,6 +7,9 @@
                       {"task": <record>} -> {"ok", "probs" over the exact labels, "latency_s", ...}
 
 Single-threaded on purpose: the harness runs serially, and one GPU should see one request at a time.
+
+A choice question with more than 26 options is answered through a shortlist (`--shortlist`, see
+`shortlist.py` and the README, "Long menus"); `--shortlist off` refuses it with a 400, as 1.1.0 did.
 """
 
 from __future__ import annotations
@@ -17,7 +20,7 @@ import sys
 import time
 from http.server import BaseHTTPRequestHandler, HTTPServer
 
-from hopper_decisions import HF_REPO, MAP, NAME, request
+from hopper_decisions import HF_REPO, MAP, NAME, request, shortlist
 
 
 def handler(decider):
@@ -97,17 +100,51 @@ def build_parser():
     parser.add_argument("--allow-slow-kernels", action="store_true",
                         help="DEBUG ONLY: start even if the linear-attention layers would run on transformers' "
                              "slow PyTorch reference path; never time or submit such a run")
+    long = parser.add_argument_group("long menus", "choice questions with more options than one pass can read")
+    long.add_argument("--shortlist", choices=(*shortlist.STRATEGIES, "off"), default=shortlist.DEFAULT.strategy,
+                      help="first stage for a long menu: 'tournament' (default, measured; no extra model), "
+                           "'embedding' (unmeasured; downloads Qwen/Qwen3-Embedding-0.6B on first start), or "
+                           "'off' (refuse menus over 26 options, as 1.1.0 did)")
+    long.add_argument("--shortlist-k", type=int, default=None,
+                      help=f"options kept for the final pass, 2 to {shortlist.LIMIT} (default "
+                           + ", ".join(f"{k} for {s}" for s, k in shortlist.DEFAULT_K.items()) + ")")
+    long.add_argument("--shortlist-threshold", type=int, default=shortlist.DEFAULT.threshold,
+                      help=f"shortlist choice questions with more options than this, 1 to {shortlist.LIMIT} "
+                           f"(default {shortlist.DEFAULT.threshold})")
+    long.add_argument("--shortlist-residual", type=float, default=shortlist.DEFAULT.residual,
+                      help="probability mass mixed in uniformly over the whole menu, so that every option, "
+                           f"including the eliminated ones, keeps some (default {shortlist.DEFAULT.residual:g})")
+    long.add_argument("--shortlist-seed", type=int, default=shortlist.DEFAULT.seed,
+                      help="seed for dealing a menu into tournament chunks (default 0)")
+    long.add_argument("--embedding-model", default=shortlist.EMBEDDER,
+                      help=f"embedding model for --shortlist embedding (default {shortlist.EMBEDDER})")
+    long.add_argument("--embedding-revision", default=shortlist.EMBEDDER_REVISION,
+                      help="its Hub revision (default: the pinned one)")
     return parser
 
 
+def shortlist_config(args):
+    """The `shortlist.Config` the flags ask for, or None for --shortlist off. Raises ValueError."""
+    if args.shortlist == "off":
+        return None
+    return shortlist.Config(strategy=args.shortlist, k=args.shortlist_k, threshold=args.shortlist_threshold,
+                            residual=args.shortlist_residual, seed=args.shortlist_seed,
+                            embedder=args.embedding_model, embedder_revision=args.embedding_revision)
+
+
 def main():
-    args = build_parser().parse_args()
+    parser = build_parser()
+    args = parser.parse_args()
+    try:
+        config = shortlist_config(args)
+    except ValueError as error:
+        parser.error(str(error))
     from hopper_decisions import fastpath
     from hopper_decisions.model import Decider
     try:
         decider = Decider(adapter=args.adapter, calibration_map=None if args.no_map else args.map,
                           allow_slow_kernels=args.allow_slow_kernels, name=args.name,
-                          cuda_graphs=not args.no_cuda_graphs,
+                          cuda_graphs=not args.no_cuda_graphs, shortlist=config,
                           **({"warm_lengths": ()} if args.no_length_warmup else {}))
     except fastpath.SlowKernels as error:
         sys.exit(str(error))  # exit status 1, the message on stderr
@@ -125,6 +162,8 @@ def main():
     print(f"length warm-up: {count} lengths in {seconds:.1f} s", flush=True)
     for line in graph_lines(decider) or ["cuda graphs: off (--no-cuda-graphs); every request runs eager"]:
         print(line, flush=True)
+    print(config.describe() if config else "shortlist: off; choice questions over 26 options are refused",
+          flush=True)
     print(f"serving {decider.name} on {args.host}:{args.port}", flush=True)
     HTTPServer((args.host, args.port), handler(decider)).serve_forever()
 

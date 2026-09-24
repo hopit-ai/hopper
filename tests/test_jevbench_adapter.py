@@ -16,8 +16,9 @@ from typing import Any, Optional
 
 import pytest
 
-from hopper_decisions import NAME, calibration, jevbench_adapter, request
+from hopper_decisions import NAME, calibration, jevbench_adapter, pipeline, request
 from hopper_decisions.jevbench_adapter import HopperDirectAdapter
+from hopper_decisions.shortlist import DEFAULT as SHORTLIST
 
 
 # --- the harness's DecisionResult (jevbench/adapters/base.py, v1.3.0), field for field ----------
@@ -63,11 +64,13 @@ def harness(monkeypatch):
 
 
 class FakeDecider:
-    """`Decider` without weights: the real request parsing, calibration and response shaping, with a
-    fixed distribution in place of the forward pass. `score` mirrors `model.Decider.score` exactly."""
+    """`Decider` without weights: `score` is the real request path (`pipeline.score`, which
+    `model.Decider.score` is), with a fixed distribution in place of the forward pass: 0.7 on the
+    first option a pass shows, the rest shared evenly."""
 
-    def __init__(self, name=NAME, fail=None, context=1024, slow=()):
+    def __init__(self, name=NAME, fail=None, context=1024, slow=(), shortlist=SHORTLIST):
         self.name, self.map, self.calls, self.fail = name, calibration.Constant(1.0), [], fail
+        self.shortlist, self.embedder, self.shown = shortlist, None, []
         self.model = types.SimpleNamespace(config=types.SimpleNamespace(max_position_embeddings=context))
         self.gpu = {"name": "NVIDIA A10G", "capability": "8.6", "cuda": "12.8", "torch": "2.8.0"}
         self.kernels = {"causal_conv1d_fn": {"implementation": "causal_conv1d.causal_conv1d_fn",
@@ -75,20 +78,18 @@ class FakeDecider:
         self.slow_kernels, self.warm_seconds = list(slow), (16, 3.2)
 
     def encode(self, example):
+        self.shown.append(request.names(example))
         return list(range(4 * len(example["document"].split()) + 8))
+
+    def letter_probs(self, ids, count):
+        assert count == len(self.shown[-1]) <= 26
+        return [0.7 if i == 0 else 0.3 / (count - 1) for i in range(count)]
 
     def score(self, req):
         self.calls.append(req)
         if self.fail is not None:
             raise self.fail
-        example, key = request.parse(req)
-        ids = self.encode(example)
-        labels = request.names(example)
-        raw = {label: (0.7 if i == 0 else 0.3 / (len(labels) - 1)) for i, label in enumerate(labels)}
-        reply = request.response(key, example["kind"], calibration.apply(self.map, example, raw),
-                                 self.name, len(ids))
-        return {"example": example, "raw": raw, "response": reply, "tokens": len(ids),
-                "seconds": (0.001, 0.04, 0.0001)}
+        return pipeline.score(self, req)
 
 
 def adapter(decider=None, **kw):
@@ -189,11 +190,54 @@ def test_latency_excludes_nothing_but_is_measured_around_score():
     assert 0.0 <= res.latency_s < 1.0
 
 
+# --- long menus: the shortlist ------------------------------------------------------------------
+@pytest.mark.parametrize("n", [27, 77, 150])
+def test_a_long_menu_is_answered_over_every_label(n):
+    task, decider = choice_task(n), FakeDecider()
+    res = adapter(decider).run(task)
+    assert res.ok and res.status is None and res.error is None
+    assert set(res.probs) == set(task.labels) and abs(sum(res.probs.values()) - 1.0) < 1e-9
+    record = res.raw["runtime"]["shortlist"]
+    assert record["strategy"] == "tournament" and record["k"] == 10 and record["options"] == n
+    assert record["passes"] == -(-n // 26) + 1 == len(decider.shown)
+    dropped = [label for label in task.labels if label not in record["kept"]]
+    assert all(res.probs[label] == pytest.approx(0.05 / n) for label in dropped)
+    assert "shortlist to 10 of" in res.raw["runtime"]["readout"]
+    assert res.raw["runtime"]["probability_origin"].endswith("uniform-residual-over-all-labels")
+    assert set(res.raw["answer"]["uncalibrated"]) == set(task.labels)
+    assert res.usage["input_tokens"] == res.raw["answer"]["input_tokens"] == 28 * len(decider.shown)  # 28 tokens a pass, every pass billed
+
+
+def test_exactly_26_options_is_one_pass_with_no_shortlist_record():
+    decider = FakeDecider()
+    res = adapter(decider).run(choice_task(26))
+    assert res.ok and len(decider.shown) == 1 and "shortlist" not in res.raw["runtime"]
+    assert res.raw["runtime"]["readout"] == "option-letter softmax, one forward pass"
+    off = adapter(FakeDecider(shortlist=None)).run(choice_task(26))
+    assert off.probs == res.probs
+
+
 # --- the 422 rule (jevbench/runner.py: a 422 never counts toward the abort) ----------------------
-def test_more_than_26_options_is_a_422_not_an_abort():
-    res = adapter().run(choice_task(27))
+def test_with_the_shortlist_off_more_than_26_options_is_a_422_not_an_abort():
+    res = adapter(FakeDecider(shortlist=None)).run(choice_task(27))
     assert res.ok is False and res.status == 422
     assert "27 options" in res.error and res.probs is None
+
+
+@pytest.mark.parametrize("labels", [[f"opt{i}" for i in range(29)], [f"opt{i}" for i in range(30)] + ["extra"]])
+def test_a_malformed_long_menu_is_still_a_422(labels):
+    task = choice_task(30)
+    task.labels = labels                   # labels and criteria disagree
+    decider = FakeDecider()
+    res = adapter(decider).run(task)
+    assert res.ok is False and res.status == 422 and "differ" in res.error and decider.shown == []
+
+
+def test_a_score_question_with_more_than_26_levels_is_still_a_422():
+    task = Task(id="s-30", state="s", labels=[str(i) for i in range(30)],
+                question={"type": "score", "instructions": "q", "criteria": ["level"] * 30})
+    res = adapter().run(task)
+    assert res.ok is False and res.status == 422 and "30 options" in res.error
 
 
 def test_a_question_type_we_do_not_serve_is_a_422():
@@ -225,7 +269,7 @@ def test_a_load_failure_has_no_status():
 
 def test_the_runner_never_aborts_on_a_run_of_out_of_contract_items():
     """runner.run_all: errors resets to 0 on any result whose status_code is 422."""
-    a, errors = adapter(), 0
+    a, errors = adapter(FakeDecider(shortlist=None)), 0
     for _ in range(5):
         r = a.run(choice_task(30))
         errors = errors + 1 if not r.ok and r.status != 422 else 0
@@ -258,7 +302,11 @@ def test_load_builds_the_decider_the_server_builds(monkeypatch):
                         types.SimpleNamespace(Decider=lambda **kw: built.append(kw) or FakeDecider()))
     HopperDirectAdapter(endpoint="/adapters/x").load()
     assert built[0] == {"adapter": "/adapters/x", "calibration_map": MAP, "name": "hopper",
-                        "allow_slow_kernels": False, "cuda_graphs": True}  # map shipped, guard, warm-up and graphs on
+                        "allow_slow_kernels": False, "cuda_graphs": True,
+                        "shortlist": SHORTLIST}  # map shipped, guard, warm-up, graphs and the shortlist on
+    built.clear()
+    HopperDirectAdapter(shortlist=None).load()
+    assert built[0]["shortlist"] is None     # long menus refused, as 1.1.0 did
     built.clear()
     HopperDirectAdapter(revision="deadbeef").load()
     assert built[0]["revision"] == "deadbeef"

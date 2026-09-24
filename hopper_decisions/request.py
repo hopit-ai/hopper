@@ -41,8 +41,12 @@ def options_for(question, labels):
     return [{"name": label, "description": criteria[label]} for label in labels]
 
 
-def parse(request):
-    """(example, question key). Raises ValueError on a request we cannot answer."""
+def parse(request, large_choice=False):
+    """(example, question key). Raises ValueError on a request we cannot answer.
+
+    More than 26 options is one: the readout has one letter per option. `large_choice=True` lets a
+    choice question past that limit through, for the shortlist (`shortlist.py`) to cut down before
+    the readout; every other check is the same, and a score question is still held to 26 levels."""
     if "questions" in request:
         questions = request["questions"]
         if not isinstance(questions, dict) or len(questions) != 1:
@@ -69,7 +73,7 @@ def parse(request):
             labels = list(criteria) if kind == "choice" else [str(i) for i in range(len(criteria))]
         if kind == "choice" and set(labels) != set(criteria):
             raise ValueError("choice labels and criteria keys differ")
-        if len(labels) > len(LETTERS):
+        if len(labels) > len(LETTERS) and not (large_choice and kind == "choice"):
             raise ValueError(f"{len(labels)} options, more than {len(LETTERS)} letters")
         options = options_for(question, [str(label) for label in labels])
     return {"kind": kind, "policy": policy, "document": document(request["state"]),

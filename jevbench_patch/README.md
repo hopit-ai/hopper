@@ -67,8 +67,9 @@ through the same `Decider.score` and `request.harness_probs` the server's `POST 
 The probabilities are therefore identical to the served ones, float for float; only the HTTP hop is
 gone.
 
-Out-of-contract inputs (more than 26 options, a question type we do not serve, a prompt past the
-model's context) come back as `status = 422` with `error` set, which `runner.py` records as
+Out-of-contract inputs (a question type we do not serve, a malformed question, a prompt past the
+model's context, and more than 26 options when the shortlist is turned off with
+`HopperDirectAdapter(shortlist=None)`) come back as `status = 422` with `error` set, which `runner.py` records as
 unprocessable and exempts from its three-consecutive-failure abort, so one bad item can never stop a
 run. A load failure or a CUDA fault comes back with no status and does count toward that rule,
 because three of those in a row is a real fault.

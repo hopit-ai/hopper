@@ -18,13 +18,16 @@ a server that is already up. Without it the weights load inside the first decisi
 which is not a number anyone should publish.
 
 Failure policy, following the runner's stop rule (jevbench/runner.py): anything the contract cannot
-represent -- more than 26 options, a question type we do not serve, a prompt longer than the model's
-context -- comes back as `status = 422`, which the runner records as unprocessable and exempts from
-the three-consecutive-failure abort. A load failure or a CUDA fault comes back with no status and
-does count, because three of those in a row is a real fault and stopping is right.
+represent -- a question type we do not serve, a malformed question, a score question with more than
+26 levels, a prompt longer than the model's context, and a choice question with more than 26 options
+when the shortlist is turned off (`shortlist=None`) -- comes back as `status = 422`, which the
+runner records as unprocessable and exempts from the three-consecutive-failure abort. A load failure
+or a CUDA fault comes back with no status and does count, because three of those in a row is a real
+fault and stopping is right.
 
 Standard library and this package only. No network beyond the adapter download `Decider` already
-does, and nothing is reported anywhere.
+does (and the embedding model's, only if `shortlist` asks for the embedding stage), and nothing is
+reported anywhere.
 """
 
 from __future__ import annotations
@@ -32,6 +35,7 @@ from __future__ import annotations
 import time
 
 from hopper_decisions import HF_REPO, MAP, NAME, request
+from hopper_decisions.shortlist import DEFAULT as SHORTLIST, LIMIT
 
 _DecisionResult = None
 
@@ -52,7 +56,7 @@ class HopperDirectAdapter:
 
     def __init__(self, endpoint=None, model=None, key_env="", timeout_s=None,
                  price_input_per_m=None, price_output_per_m=None, revision=None,
-                 calibration_map=MAP, allow_slow_kernels=False, cuda_graphs=True):
+                 calibration_map=MAP, allow_slow_kernels=False, cuda_graphs=True, shortlist=SHORTLIST):
         # `endpoint` is the LoRA adapter: a Hugging Face repo id or a local directory, the same
         # value `hopper-serve --adapter` takes. `revision` optionally repins the base model.
         self.endpoint = endpoint or HF_REPO
@@ -65,6 +69,7 @@ class HopperDirectAdapter:
         self.calibration_map = calibration_map
         self.allow_slow_kernels = allow_slow_kernels
         self.cuda_graphs = cuda_graphs
+        self.shortlist = shortlist  # long choice menus, as `hopper-serve` answers them; None refuses them
         self.load_s = None
         self.fast_kernels = None
         self._decider = None
@@ -77,7 +82,7 @@ class HopperDirectAdapter:
             started = time.perf_counter()
             self._decider = Decider(adapter=self.endpoint, calibration_map=self.calibration_map,
                                     name=self.model, allow_slow_kernels=self.allow_slow_kernels,
-                                    cuda_graphs=self.cuda_graphs,
+                                    cuda_graphs=self.cuda_graphs, shortlist=self.shortlist,
                                     **({"revision": self.revision} if self.revision else {}))
             self.load_s = time.perf_counter() - started
             self._report(self._decider)
@@ -98,7 +103,8 @@ class HopperDirectAdapter:
               f"CUDA {gpu.get('cuda')}, torch {gpu.get('torch')}); "
               f"{'fast-kernel check passed' if self.fast_kernels else 'WARNING: SLOW reference path, do not time this run'}"
               f"{'; ' + kernels if kernels else ''}; loaded in {self.load_s:.1f} s, "
-              f"{count} lengths warmed in {warm:.1f} s; {graphs}", flush=True)
+              f"{count} lengths warmed in {warm:.1f} s; {graphs}; "
+              f"{self.shortlist.describe() if self.shortlist else 'shortlist: off'}", flush=True)
 
     def build_request(self, task):
         """The canonical record as `hopper_decisions.request.parse` reads it. The question is built
@@ -133,12 +139,20 @@ class HopperDirectAdapter:
         res.usage = reply["usage"]          # the very count request.response() reports
         res.model = reply["model"]
         parse_s, forward_s, post_s = out["seconds"]
+        runtime = {"model": reply["model"], "readout": "option-letter softmax, one forward pass",
+                   "probability_origin": "native-option-letter-softmax-then-calibration-map",
+                   "fast_kernels": self.fast_kernels,
+                   "seconds": {"tokenise": parse_s, "forward": forward_s, "post": post_s}}
+        if out.get("shortlist"):  # a long menu: say exactly how its probabilities were made
+            record = out["shortlist"]
+            runtime.update({"readout": f"{record['strategy']} shortlist to {record['k']} of {record['options']} "
+                                       f"options, then option-letter softmax, {record['passes']} forward passes",
+                            "probability_origin": "native-option-letter-softmax-over-shortlist-then-calibration-map"
+                                                  "-then-uniform-residual-over-all-labels",
+                            "shortlist": record})
         res.raw = {"answer": {"probabilities": res.probs, "uncalibrated": out["raw"],
                               "input_tokens": out["tokens"], "question_type": kind},
-                   "runtime": {"model": reply["model"], "readout": "option-letter softmax, one forward pass",
-                               "probability_origin": "native-option-letter-softmax-then-calibration-map",
-                               "fast_kernels": self.fast_kernels,
-                               "seconds": {"tokenise": parse_s, "forward": forward_s, "post": post_s}}}
+                   "runtime": runtime}
         res.ok = True
         return res
 
@@ -147,9 +161,11 @@ class HopperDirectAdapter:
         wrong answer and not toward its abort rule; None when it looks like a fault of ours, which
         should be allowed to stop the run. Only ever reached on a failure, so its cost is free."""
         if isinstance(error, (ValueError, KeyError, TypeError)):
-            return 422  # request.parse refused it: bad type, missing criteria, more than 26 options
-        try:
-            example, _ = request.parse(body)
+            return 422  # request.parse refused it: bad type, missing criteria, too many options
+        try:  # the longest single pass: the whole prompt, or a chunk of 26 options of a long menu
+            example, _ = request.parse(body, large_choice=getattr(decider, "shortlist", None) is not None)
+            if example["options"] and len(example["options"]) > LIMIT:
+                example = {**example, "options": example["options"][:LIMIT]}
             return 422 if len(decider.encode(example)) > self.context_limit(decider) else None
         except Exception:  # noqa: BLE001 - the diagnosis must never replace the real error
             return None

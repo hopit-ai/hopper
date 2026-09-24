@@ -1,8 +1,25 @@
 # Changes
 
-## 1.2.0 (in development, branch `v1.2-dev`)
+## Unreleased (branch `inference-next`)
 
-Same adapter weights and calibration map as 1.1.0. Same prompt and same wire format.
+Same adapter weights and calibration map as 1.1.0. Same prompt and same wire format. Every question
+with 26 options or fewer — every JevBench item — is answered exactly as in 1.1.0.
+
+- **Long menus: choice questions with more than 26 options are answered, through a shortlist.**
+  Until now they were refused (HTTP 400, or 422 in-process). A first stage cuts the menu to k
+  options and the ordinary single pass decides among them, with the same prompt, readout and
+  calibration map. The default first stage is a tournament: the menu is dealt into
+  `ceil(n / 26)` chunks with a fixed seed, each chunk is read by the ordinary single pass, and the
+  10 options that score best in their chunks go to the final pass (`ceil(n / 26) + 1` passes in
+  all). The reply carries a probability for every option in the request: the final distribution
+  mixed with a uniform distribution over the whole menu at weight 0.05, so an eliminated option gets
+  0.05 / n and the winner can never change. An embedding first stage (`Qwen/Qwen3-Embedding-0.6B`,
+  Apache-2.0, pinned revision, option embeddings cached) is available behind
+  `--shortlist embedding` and is off by default until measured. `--shortlist off` (or
+  `shortlist=None`) restores the 1.1.0 refusal. Accuracy with the adapter and latency on long menus
+  are not yet measured; see `README.md`, "Long menus". New modules: `shortlist.py`, `embedder.py`,
+  and `pipeline.py`, which now holds the request path `Decider.score` runs, so it is tested without
+  a GPU.
 
 - **CUDA graphs, on by default.** At start-up, after the fast-kernel guard and the length
   warm-up, the forward pass is captured into one CUDA graph per length bucket, from 128 to 4,096

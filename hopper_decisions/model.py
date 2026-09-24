@@ -12,6 +12,10 @@ fast the same numbers come out.
 By default the forward is replayed from a CUDA graph captured per length bucket at start-up, which
 removes the host's kernel-launch time; `cuda_graphs=False` (`hopper-serve --no-cuda-graphs`) keeps
 every request on the eager path. Padding to a bucket cannot change an answer (`fastpath.padded`).
+
+A choice question with more than 26 options is answered through a shortlist (`shortlist.py`): a
+first stage keeps k options and the same single pass decides among them. Every other request is
+the one forward pass above. `shortlist=None` refuses long menus, as 1.1.0 did.
 """
 
 from __future__ import annotations
@@ -22,8 +26,9 @@ import time
 
 import torch
 
-from hopper_decisions import MAP, NAME, calibration, fastpath, request
+from hopper_decisions import MAP, NAME, calibration, fastpath, pipeline
 from hopper_decisions.prompt import SYSTEM, body, chat_ids, letter_token_ids, messages, option_lines
+from hopper_decisions.shortlist import DEFAULT as SHORTLIST
 
 BASE, REVISION = "Qwen/Qwen3.5-4B", "851bf6e806efd8d0a36b00ddf55e13ccb7b8cd0a"
 # fla autotunes its q/k l2norm again whenever NB = ceil(tokens x 32 heads / 65536) changes, i.e. at
@@ -39,7 +44,7 @@ SENTINEL = "⁣USER⁣"  # invisible, never in a request, and no template rule t
 class Decider:
     def __init__(self, adapter=None, calibration_map=MAP, base=BASE, revision=REVISION, name=NAME,
                  device="cuda", attention=None, prefix_cache=False, allow_slow_kernels=False,
-                 warm_lengths=WARM_LENGTHS, cuda_graphs=True, buckets=fastpath.BUCKETS):
+                 warm_lengths=WARM_LENGTHS, cuda_graphs=True, buckets=fastpath.BUCKETS, shortlist=SHORTLIST):
         if cuda_graphs and prefix_cache:
             raise ValueError("cuda_graphs and prefix_cache are exclusive: the graph replays a full forward")
         from transformers import AutoModelForCausalLM, AutoTokenizer
@@ -58,6 +63,12 @@ class Decider:
             model = PeftModel.from_pretrained(model, adapter).merge_and_unload()
         self.model = model.eval()
         self.body = model.model
+        # Long choice menus (`shortlist.py`): None refuses them, as 1.1.0 did. The embedding first
+        # stage loads its own model here, before graph capture measures what memory is left.
+        self.shortlist, self.embedder = shortlist, None
+        if shortlist is not None and shortlist.strategy == "embedding":
+            from hopper_decisions.embedder import Embedder
+            self.embedder = Embedder(shortlist.embedder, shortlist.embedder_revision, device=device)
         self.head = model.get_output_embeddings().weight[letter_token_ids(self.tokenizer)].detach().clone()
         self.map = calibration_map if not isinstance(calibration_map, (str, os.PathLike, type(None))) \
             else calibration.read(calibration_map)
@@ -211,18 +222,8 @@ class Decider:
 
     def score(self, req):
         """Everything one decision produces: the pre-map probabilities, the response, the token
-        count, and seconds in tokenisation / forward pass / post-processing."""
-        t0 = time.perf_counter()
-        example, key = request.parse(req)
-        ids = self.encode(example)
-        t1 = time.perf_counter()
-        labels = request.names(example)
-        raw = dict(zip(labels, self.letter_probs(ids, len(labels))))
-        t2 = time.perf_counter()
-        reply = request.response(key, example["kind"], calibration.apply(self.map, example, raw), self.name, len(ids))
-        t3 = time.perf_counter()
-        return {"example": example, "raw": raw, "response": reply, "tokens": len(ids),
-                "seconds": (t1 - t0, t2 - t1, t3 - t2)}
+        count, and seconds in tokenisation / forward pass / post-processing (`pipeline.score`)."""
+        return pipeline.score(self, req)
 
     def decide(self, req):
         return self.score(req)["response"]
