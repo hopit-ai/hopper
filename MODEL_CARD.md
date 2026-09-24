@@ -28,6 +28,8 @@ datasets:
 
 # Hopper
 
+> **Research and demo use only.** This adapter is published for research and demonstration. Its training data included passages from RACE (via the `cais/mmlu` auxiliary set), which its authors release for non-commercial research only and whose terms extend to derived data. Do not use this adapter commercially. A version trained without these passages is in development.
+
 Hopper is a LoRA adapter (rank 16) for
 [`Qwen/Qwen3.5-4B`](https://huggingface.co/Qwen/Qwen3.5-4B) at revision
 `851bf6e806efd8d0a36b00ddf55e13ccb7b8cd0a`. It is built for the
@@ -51,9 +53,10 @@ question go in, and a probability distribution over a fixed set of options comes
   HTTP server with the JevBench `/v1/systemone` wire format. At load it merges the adapter into the
   bf16 weights, and it refuses to start if the fast linear-attention kernels are not active.
 
-Code and adapter weights are licensed Apache-2.0. The base model is Apache-2.0
-([licence](https://huggingface.co/Qwen/Qwen3.5-4B/blob/main/LICENSE)), and this adapter does not
-change its terms.
+The serving code is licensed Apache-2.0. The adapter weights are offered for research and demo use
+only, because of the RACE training-data terms described above and under "Training data". The base
+model is Apache-2.0 ([licence](https://huggingface.co/Qwen/Qwen3.5-4B/blob/main/LICENSE)), and this
+adapter does not change its terms.
 
 ## Intended use
 
@@ -130,7 +133,7 @@ The adapter was trained on a mix of three sources:
 | --- | --- | --- |
 | [allenai/ai2_arc](https://huggingface.co/datasets/allenai/ai2_arc) (ARC-Challenge, ARC-Easy) | multiple choice | CC BY-SA 4.0 |
 | [tau/commonsense_qa](https://huggingface.co/datasets/tau/commonsense_qa) | multiple choice | MIT |
-| [cais/mmlu](https://huggingface.co/datasets/cais/mmlu) (`auxiliary_train`) | multiple choice | MIT (as stated on the dataset card; the auxiliary set collects other public datasets) |
+| [cais/mmlu](https://huggingface.co/datasets/cais/mmlu) (`auxiliary_train`) | multiple choice | MIT (as stated on the dataset card), but the auxiliary set bundles other public datasets, including RACE, whose authors release it for non-commercial research only, with terms that extend to derived data |
 | [stanfordnlp/snli](https://huggingface.co/datasets/stanfordnlp/snli) | entailment | CC BY-SA 4.0 |
 | [nyu-mll/multi_nli](https://huggingface.co/datasets/nyu-mll/multi_nli) | entailment | CC BY 3.0 / CC BY-SA 3.0 / MIT / other, per source genre (see the dataset card) |
 | [tals/vitaminc](https://huggingface.co/datasets/tals/vitaminc) | fact verification | CC BY-SA 3.0 |
