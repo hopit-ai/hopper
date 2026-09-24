@@ -1,8 +1,12 @@
 Hopper
 Copyright 2026 The Hopper authors
 
-This repository (code) and the Hopper LoRA adapter weights are licensed under the
-Apache License, Version 2.0 (see LICENSE).
+The code in this repository is licensed under the Apache License, Version 2.0 (see LICENSE).
+
+The Hopper LoRA adapter weights are offered for research and demo use only, not for commercial
+use, because their training data included passages from RACE (via the cais/mmlu auxiliary set).
+RACE's authors release it for non-commercial research only, and its terms extend to derived data.
+See MODEL_CARD.md.
 
 Base model
   The adapter is trained on, and only runs with, Qwen/Qwen3.5-4B

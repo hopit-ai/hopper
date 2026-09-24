@@ -1,5 +1,7 @@
 ---
-license: apache-2.0
+license: other
+license_name: research-and-demo
+license_link: https://github.com/hopit-ai/hopper/blob/main/MODEL_CARD.md
 base_model: Qwen/Qwen3.5-4B
 library_name: peft
 language:
