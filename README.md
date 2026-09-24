@@ -183,7 +183,7 @@ probability key.
 The calibration map was fitted on single-pass distributions over at most 26 options, so it is
 applied to the final pass, before the mixture, and never to the whole menu.
 
-**The embedding first stage (off by default, not yet measured).** `--shortlist embedding` replaces
+**The embedding first stage (off by default).** `--shortlist embedding` replaces
 the tournament with an embedding model: each option (the exact line the prompt shows for it) and
 the request's state are embedded, and the k options with the highest dot product go to the final
 pass. The model is [`Qwen/Qwen3-Embedding-0.6B`](https://huggingface.co/Qwen/Qwen3-Embedding-0.6B)
@@ -194,7 +194,8 @@ once and each later request costs one embedding of its state plus one decision p
 downloaded from the Hub on the first start with this flag and never otherwise, and it adds about
 1.2 GB of weights on the GPU. Its default k is 26: it is a different model from the decider, so its
 misses are not the decider's misses, and the final pass should see as many candidates as it can.
-It stays off by default until it has been measured against the tournament.
+Measured against the tournament (below), it was level on accuracy and much faster once a menu is
+cached, but it adds a second model, so it stays off by default.
 
 | Flag | Default | |
 | --- | --- | --- |
@@ -225,11 +226,25 @@ decision model's own mean-pooled hidden states, tried as an embedding stage in t
 answer in the top 26 only 39 % of the time on CLINC-150; that is why the embedding stage uses a
 dedicated embedding model instead.
 
-**Not measured yet, and needing a GPU:** accuracy and recall@k with Hopper's adapter and map on
-Banking77 and CLINC-150 (77- and 150-way); the refit of `r`; latency per long-menu decision (4 and
-7 passes, and how many of the short chunk prompts replay a CUDA graph); and the embedding
-stage's accuracy, recall, latency and memory against the tournament's. Until then, treat long-menu
-answers as a measured method on an unmeasured adapter.
+**Measured with Hopper's adapter and map (1.1.1, 2026-09-24).** One A10G, eager, through the HTTP
+server, default settings, 300 items each from the public test splits of BANKING77 (77 intents)
+and CLINC150 (150 intents, out-of-scope dropped):
+
+| | BANKING77 | CLINC150 |
+| --- | ---: | ---: |
+| top-1 accuracy (default: tournament, k = 10) | 0.673 | 0.863 |
+| right answer kept by the first stage (recall@10) | 0.887 | 0.977 |
+| accuracy with the embedding first stage, k = 10 | 0.667 | 0.860 |
+| latency p50 / p95, default | 321 / 332 ms | 569 / 577 ms |
+| latency p50 / p95, embedding stage, menu cached | 79 / 85 ms | 79 / 84 ms |
+
+Standard error about 0.027 and 0.020. The adapter was trained on menus of at most six options; on
+these long menus it is level with the frozen base model within sampling error. Repeated requests
+got identical replies (50 of 50). With the embedding stage loaded, the server starts and serves
+long menus on a card limited to 16 GB (peak 11.1 GiB). On BANKING77 the served top choice is
+overconfident (mean top probability 0.78 against 0.67 accuracy), and `r` is still the default 0.05:
+it under-covers BANKING77's first-stage misses and over-covers CLINC150's; refitting it on held-out
+long menus is open. Not measured: CLINC150's out-of-scope class, and other long-menu tasks.
 
 ## GPU and memory
 
@@ -329,7 +344,7 @@ pip install -e ".[test]" && pytest     # no GPU, no network
 
 ## Changes
 
-`CHANGELOG.md`. 1.1.1 (unreleased, this branch) answers choice questions with more than 26
+`CHANGELOG.md`. 1.1.1 answers choice questions with more than 26
 options through a disclosed shortlist and leaves every question of 26 options or fewer exactly as
 1.1.0 answers it, with the same weights and calibration map; CUDA graphs are available but opt-in.
 It is for research and demo use (see `NOTICE`). 1.1.0 adds the in-process route above and replaces the calibration map with one
