@@ -1,5 +1,12 @@
 # Changes
 
+## Hopper (G) 1.2 (tag g-1.2.0, 2026-09-26)
+
+A separate, general-purpose line. The serving code is unchanged from 1.1.1; only the adapter weights differ, published
+at `HopitAI/hopper-g` (revision `d60a1d6`). On our local run of the Decision Index 0.2 suite (40 benchmarks, same
+serving code): balanced raw 53.50 vs 52.74 for Hopper 1.1.1 (paired bootstrap +0.76, 95 % interval +0.55 to +0.98);
+an independently trained second seed confirms (53.44). Research and demo use (see NOTICE). Hopper 1.1.1 is unchanged.
+
 ## 1.1.1 (2026-09-24)
 
 1.1.1: long menus (> 26 options) via a disclosed two-stage shortlist; ≤ 26 options

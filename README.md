@@ -37,6 +37,23 @@ The adapter weights are identical in 1.0.0 and 1.1.0; only the calibration map c
 `hopper_decisions/maps/hopper-v1.0-linear.json`, so 1.0.0 can still be reproduced from this
 repository by passing it to `hopper-serve --map`.
 
+## Hopper (G): the general-purpose line
+
+**Hopper (G) 1.2** is a separate, general-purpose line served with exactly this code: same prompt, readout,
+calibration map and long-menu shortlist, with different adapter weights published at
+[`HopitAI/hopper-g`](https://huggingface.co/HopitAI/hopper-g) (revision `d60a1d6`). Hopper itself
+(`HopitAI/hopper`) is unchanged. Tag `g-1.2.0` marks this code for the Hopper (G) release:
+
+```sh
+huggingface-cli download HopitAI/hopper-g --revision d60a1d6ca3f3fa25e5daddea16b8ba2b431ebcee --local-dir hopper-g
+(cd hopper-g && shasum -a 256 -c CHECKSUMS.txt)
+hopper-serve --adapter ./hopper-g --port 8080
+```
+
+Hopper (G) continues from Hopper 1.0's adapter, so its weights carry the same research-and-demo terms (see `NOTICE`).
+It was built as a general model and is not tuned for JevBench; see the release notes for our Decision Index
+measurements.
+
 ## Install and serve (RunPod, as tested)
 
 Image `runpod/pytorch:1.0.2-cu1281-torch280-ubuntu2404` (RunPod's "Runpod Pytorch 2.8.0"
