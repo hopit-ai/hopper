@@ -24,8 +24,8 @@ weights are offered for research and demo use only, because of the RACE training
 
 | model | weights | JevBench | Jev Decision Index |
 | --- | --- | --- | --- |
-| **Hopper** | [`HopitAI/hopper`](https://huggingface.co/HopitAI/hopper) | **59.43, #6 of 90 ranked** (v1.4.2.1, 27 Sep 2026; the measured row is 1.0.0): Intelligence 48.0, Calibration 79.1, Speed 86.8, Cost 58.7. #3 in the board's Jev-class capability ranking (63.5) | 1.1.1 scored 39.67 (edition 0.2.1); its row has since been replaced by Hopper (G) 1.2 |
-| **Hopper (G) 1.2** | [`HopitAI/hopper-g`](https://huggingface.co/HopitAI/hopper-g) @ `d60a1d6` | requested ([issue #112](https://github.com/fstandhartinger/jevbench/issues/112)), not yet measured | **40.77, #16 of 68** (edition 0.2.1, 27 Sep 2026); the highest of the 4B models, 0.07 ahead of Decider 4B. Complete self-scored run: [results](https://huggingface.co/datasets/HopitAI/hopper-g-decision-index-results) |
+| **Hopper** | [`HopitAI/hopper`](https://huggingface.co/HopitAI/hopper) | **59.43, #6 of 90 ranked** (v1.4.2.1, 27 Sep 2026; the measured row is 1.0.0): Intelligence 48.0, Calibration 79.1, Speed 86.8, Cost 58.7. #3 in the board's Jev-class capability ranking (63.5) | 1.1.1: **36.71, #12 of 49** (edition 0.2, 25 Sep 2026), then **39.67, #19 of 67** (edition 0.2.1); its row has since been replaced by Hopper (G) 1.2 |
+| **Hopper (G) 1.2** | [`HopitAI/hopper-g`](https://huggingface.co/HopitAI/hopper-g) @ `d60a1d6` | requested ([issue #112](https://github.com/fstandhartinger/jevbench/issues/112)), **not yet measured**. Our own development check on held-out JevBench-style items (not an official score): level with Hopper 1.0, +0.7 points, within noise | **40.77, #16 of 68** (edition 0.2.1, 27 Sep 2026); the highest of the 4B models, 0.07 ahead of Decider 4B. Complete self-scored run: [results](https://huggingface.co/datasets/HopitAI/hopper-g-decision-index-results) |
 
 The official numbers are the boards' own, and both boards change as entrants are added: see the
 [JevBench board](https://benchmarkheaven.com/jev-models) and the

@@ -67,7 +67,7 @@ adapter does not change its terms.
   #3 in the board's Jev-class capability ranking (63.5, the mean of Intelligence and Calibration). Accuracy is
   82.3 % on the public items and 34.1 % on the maintainer's sealed set.
 - **[Jev Decision Index](https://huggingface.co/spaces/multimodalart/jev-decision-index)**: Hopper 1.1.1 scored
-  39.67 (edition 0.2.1). Its row has since been replaced by
+  36.71, #12 of 49 (edition 0.2, 25 Sep 2026), then 39.67, #19 of 67 (edition 0.2.1). Its row has since been replaced by
   [Hopper (G) 1.2](https://huggingface.co/HopitAI/hopper-g), the general-purpose line served with the same code,
   at 40.77.
 
