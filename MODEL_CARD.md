@@ -60,6 +60,19 @@ only, because of the RACE training-data terms described above and under "Trainin
 model is Apache-2.0 ([licence](https://huggingface.co/Qwen/Qwen3.5-4B/blob/main/LICENSE)), and this
 adapter does not change its terms.
 
+## Leaderboards (official)
+
+- **[JevBench](https://benchmarkheaven.com/jev-models)**: **59.43, #6 of 90 ranked** in v1.4.2.1 (27 Sep 2026),
+  measured by the maintainer on adapter 1.0.0: Intelligence 48.0, Calibration 79.1, Speed 86.8, Cost 58.7. It is
+  #3 in the board's Jev-class capability ranking (63.5, the mean of Intelligence and Calibration). Accuracy is
+  82.3 % on the public items and 34.1 % on the maintainer's sealed set.
+- **[Jev Decision Index](https://huggingface.co/spaces/multimodalart/jev-decision-index)**: Hopper 1.1.1 scored
+  39.67 (edition 0.2.1). Its row has since been replaced by
+  [Hopper (G) 1.2](https://huggingface.co/HopitAI/hopper-g), the general-purpose line served with the same code,
+  at 40.77.
+
+Both boards change as entrants are added; the live pages are authoritative.
+
 ## Intended use
 
 Hopper makes single-step policy decisions over a short document: yes/no (`noul`), choice among
@@ -195,6 +208,37 @@ not on this fold.
   sequence) and dropped on a match; the check reads only hashes and reports only counts.
 - Expect the held-out hard items to score below the public ones, and expect the judge tier, which
   we have never seen, to be the least predictable part.
+
+## Long menus (more than 26 options), from code release 1.1.1
+
+The adapter answers by reading one letter per option, so a single forward pass can weigh at most 26
+options. From release 1.1.1 of the serving code (github.com/hopit-ai/hopper, tag v1.1.1), a choice
+question with more options is answered in two disclosed stages, using this same adapter and map:
+
+1. **First stage.** By default a *tournament*: the menu is dealt with a fixed seed into
+   `ceil(n / 26)` chunks, each chunk is read by the ordinary single pass, and the 10 options that
+   score best within their chunks go on. Optionally (`--shortlist embedding`), an embedding model
+   (`Qwen/Qwen3-Embedding-0.6B`, Apache-2.0, pinned) picks them instead.
+2. **Final pass.** The ordinary single pass, with the same prompt and calibration map, decides among
+   the survivors.
+
+Every option in the request gets a probability: the final distribution mixed with 5 % of a uniform
+distribution over the whole menu, so an eliminated option gets 0.05 / n and never zero. That
+residual stands for the chance that the first stage dropped the right answer; it does not change
+the answer. A 77-option menu costs 4 forward passes and a 150-option menu 7. Questions with 26
+options or fewer are answered exactly as before, with one pass.
+
+Measured on an A10G through the server, 300 public test items each, default settings:
+
+| | options | top-1 accuracy | right answer survived the first stage | latency p50 |
+| --- | ---: | ---: | ---: | ---: |
+| BANKING77 | 77 | 0.673 | 0.887 | 321 ms |
+| CLINC150 (out-of-scope dropped) | 150 | 0.863 | 0.977 | 569 ms |
+
+The adapter was trained on menus of at most six options; on these long menus it is level with the
+frozen base model within sampling error. On BANKING77 the served top choice is overconfident (mean
+top probability 0.78 against 0.67 accuracy). The 5 % residual is a default, not yet refitted to
+held-out long menus. Research and demo use only, as for the rest of this card.
 
 ## Limitations
 

@@ -2,7 +2,10 @@
 
 > **Research and demo use only.** This adapter is published for research and demonstration. Its training data included passages from RACE (via the `cais/mmlu` auxiliary set), which its authors release for non-commercial research only and whose terms extend to derived data. Do not use this adapter commercially. A version trained without these passages is in development.
 
-A JevBench decision server. Hopper is a LoRA adapter on
+A decision server for two LoRA adapters on Qwen3.5-4B: **Hopper**, built for
+[JevBench](https://benchmarkheaven.com/jev-models), and **Hopper (G)**, a general-purpose line built for the
+[Jev Decision Index](https://huggingface.co/spaces/multimodalart/jev-decision-index). Both are served by this code.
+Hopper is a LoRA adapter on
 [`Qwen/Qwen3.5-4B`](https://huggingface.co/Qwen/Qwen3.5-4B) at revision
 `851bf6e806efd8d0a36b00ddf55e13ccb7b8cd0a`, merged into the bf16 weights at load. Each decision
 takes one forward pass, with thinking off. The answer is read as a softmax over the option letters
@@ -17,11 +20,23 @@ Code: Apache-2.0, the same licence as the base model. See `LICENSE` and `NOTICE`
 weights are offered for research and demo use only, because of the RACE training-data terms above
 (see `MODEL_CARD.md`, "Training data").
 
+## Where the models stand
+
+| model | weights | JevBench | Jev Decision Index |
+| --- | --- | --- | --- |
+| **Hopper** | [`HopitAI/hopper`](https://huggingface.co/HopitAI/hopper) | **59.43, #6 of 90 ranked** (v1.4.2.1, 27 Sep 2026; the measured row is 1.0.0): Intelligence 48.0, Calibration 79.1, Speed 86.8, Cost 58.7. #3 in the board's Jev-class capability ranking (63.5) | 1.1.1 scored 39.67 (edition 0.2.1); its row has since been replaced by Hopper (G) 1.2 |
+| **Hopper (G) 1.2** | [`HopitAI/hopper-g`](https://huggingface.co/HopitAI/hopper-g) @ `d60a1d6` | requested ([issue #112](https://github.com/fstandhartinger/jevbench/issues/112)), not yet measured | **40.77, #16 of 68** (edition 0.2.1, 27 Sep 2026); the highest of the 4B models, 0.07 ahead of Decider 4B. Complete self-scored run: [results](https://huggingface.co/datasets/HopitAI/hopper-g-decision-index-results) |
+
+The official numbers are the boards' own, and both boards change as entrants are added: see the
+[JevBench board](https://benchmarkheaven.com/jev-models) and the
+[Decision Index](https://huggingface.co/spaces/multimodalart/jev-decision-index).
+
 ## The adapter
 
 - Hugging Face: [`HopitAI/hopper`](https://huggingface.co/HopitAI/hopper). The server downloads it
   on first start.
-- Or the GitHub release `v1.1.0` of this repository, which has the same files and a `CHECKSUMS.txt`:
+- Or the GitHub release `v1.1.0` of this repository, which has the same files and a `CHECKSUMS.txt`
+  (the adapter files are unchanged since 1.0.0; later releases ship no new copy):
 
   ```sh
   gh release download v1.1.0 -R hopit-ai/hopper -D hopper-adapter
@@ -50,9 +65,13 @@ huggingface-cli download HopitAI/hopper-g --revision d60a1d6ca3f3fa25e5daddea16b
 hopper-serve --adapter ./hopper-g --port 8080
 ```
 
+Every command below that takes `HopitAI/hopper` also takes this directory instead: `hopper-serve --adapter`, the
+Docker image's `ADAPTER=` (mount the directory), `Decider(adapter=...)` and the in-process route's `--endpoint`.
+
 Hopper (G) continues from Hopper 1.0's adapter, so its weights carry the same research-and-demo terms (see `NOTICE`).
-It was built as a general model and is not tuned for JevBench; see the release notes for our Decision Index
-measurements.
+It was built as a general model and is not tuned for JevBench. On the Decision Index (edition 0.2.1) it scores
+40.77 from a complete, self-scored run of the suite; the results and scores are public at
+[`HopitAI/hopper-g-decision-index-results`](https://huggingface.co/datasets/HopitAI/hopper-g-decision-index-results).
 
 ## Install and serve (RunPod, as tested)
 
@@ -61,7 +80,7 @@ template: Ubuntu 24.04, Python 3.12, CUDA 12.8.1, torch 2.8.0+cu128, `uv`). Blac
 CUDA 12.8 or newer.
 
 ```sh
-git clone https://github.com/hopit-ai/hopper && cd hopper && git checkout v1.1.0
+git clone https://github.com/hopit-ai/hopper && cd hopper && git checkout v1.1.1
 uv pip install --system --break-system-packages torch==2.8.0 transformers==5.17.0 peft==0.21.0 accelerate==1.15.0 flash-linear-attention==0.5.2 "https://github.com/Dao-AILab/causal-conv1d/releases/download/v1.7.0/causal_conv1d-1.7.0%2Bcu12torch2.8cxx11abiTRUE-cp312-cp312-linux_x86_64.whl"
 uv pip install --system --break-system-packages --no-deps -e .
 hopper-serve --adapter HopitAI/hopper --port 8080
@@ -104,7 +123,7 @@ There is no PyPI release: install the package from a clone, exactly as the recip
 then apply the patch to the harness.
 
 ```sh
-git clone https://github.com/hopit-ai/hopper && cd hopper && git checkout v1.1.0
+git clone https://github.com/hopit-ai/hopper && cd hopper && git checkout v1.1.1
 uv pip install --system --break-system-packages torch==2.8.0 transformers==5.17.0 peft==0.21.0 accelerate==1.15.0 flash-linear-attention==0.5.2 "https://github.com/Dao-AILab/causal-conv1d/releases/download/v1.7.0/causal_conv1d-1.7.0%2Bcu12torch2.8cxx11abiTRUE-cp312-cp312-linux_x86_64.whl"
 uv pip install --system --break-system-packages --no-deps -e .
 
