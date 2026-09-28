@@ -62,10 +62,9 @@ adapter does not change its terms.
 
 ## Leaderboards (official)
 
-- **[JevBench](https://benchmarkheaven.com/jev-models)**: **59.43, #6 of 90 ranked** in v1.4.2.1 (27 Sep 2026),
-  measured by the maintainer on adapter 1.0.0: Intelligence 48.0, Calibration 79.1, Speed 86.8, Cost 58.7. It is
-  #3 in the board's Jev-class capability ranking (63.5, the mean of Intelligence and Calibration). Accuracy is
-  82.3 % on the public items and 34.1 % on the maintainer's sealed set.
+- **[JevBench](https://benchmarkheaven.com/jev-models)**: **59.43, #7** in v1.4.2.2 (27 Sep 2026), measured by the
+  maintainer on adapter 1.0.0: Intelligence 48.0, Calibration 79.1, Speed 86.8, Cost 58.7. Accuracy is 82.3 % on the
+  public items and 34.1 % on the maintainer's sealed set.
 - **[Jev Decision Index](https://huggingface.co/spaces/multimodalart/jev-decision-index)**: Hopper 1.1.1 scored
   36.71, #12 of 49 (edition 0.2, 25 Sep 2026), then 39.67, #19 of 67 (edition 0.2.1). Its row has since been replaced by
   [Hopper (G) 1.2](https://huggingface.co/HopitAI/hopper-g), the general-purpose line served with the same code,
