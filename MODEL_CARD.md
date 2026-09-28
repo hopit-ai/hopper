@@ -69,7 +69,7 @@ adapter does not change its terms.
 - **[Jev Decision Index](https://huggingface.co/spaces/multimodalart/jev-decision-index)**: Hopper 1.1.1 scored
   36.71, #12 of 49 (edition 0.2, 25 Sep 2026), then 39.67, #19 of 67 (edition 0.2.1). Its row has since been replaced by
   [Hopper (G) 1.2](https://huggingface.co/HopitAI/hopper-g), the general-purpose line served with the same code,
-  at 40.77.
+  at 40.77. A newer build, Hopper (G) 1.3, is published in the same repository.
 
 Both boards change as entrants are added; the live pages are authoritative.
 

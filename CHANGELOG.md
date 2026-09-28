@@ -1,5 +1,14 @@
 # Changes
 
+## Hopper (G) 1.3 (tag g-1.3.0, 2026-09-28)
+
+New adapter weights on the Hopper (G) line, published at `HopitAI/hopper-g` (revision `8b4cd7c`); serving code and
+calibration map unchanged from Hopper (G) 1.2 (eager by default). Continued from 1.2 on 6,400 new code-generated
+decision items plus maintenance and replay under the same retention constraint. On our private held-out decision set:
++1.7 points over 1.2 (95 % interval +0.5 to +2.9), below the +3.0 we pre-registered as our bar; it passes every
+registered regression floor (pooled +2.3, one-sided lower bound +1.9; calibration 83.5). Released as a disclosed,
+qualified release; no JevBench or Decision Index claim. Research and demo use (see NOTICE). 1.2 remains at `d60a1d6`.
+
 ## Hopper (G) 1.2 (tag g-1.2.0, 2026-09-26)
 
 A separate, general-purpose line. The serving code is unchanged from 1.1.1; only the adapter weights differ, published
