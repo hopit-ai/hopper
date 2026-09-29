@@ -538,6 +538,7 @@ def test_the_server_answers_a_77_option_menu_over_every_label(served):
     assert abs(sum(answer["probabilities"].values()) - 1.0) < 1e-3                 # the harness's own tolerance
     status, body = post(f"{url}/run", {"task": record(77)})
     assert status == 200 and body["ok"] and set(body["probs"]) == set(names(77))
+    assert set(body["raw"]) == set(names(77))
 
 
 def test_the_server_still_answers_malformed_requests_with_a_400(served):

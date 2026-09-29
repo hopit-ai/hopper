@@ -11,4 +11,7 @@ def __getattr__(name):  # torch is only imported when a model is actually built
     if name == "Decider":
         from hopper_decisions.model import Decider
         return Decider
+    if name == "FrozenDecider":
+        from hopper_decisions.frozen import FrozenDecider
+        return FrozenDecider
     raise AttributeError(name)

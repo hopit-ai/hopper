@@ -39,11 +39,12 @@ def handler(decider):
                     body = decider.decide(payload)
                 elif self.path == "/run":
                     task = payload["task"]
-                    reply = decider.decide(task)
+                    scored = decider.score(task)
+                    reply = scored["response"]
                     (key, answer), = reply["answers"].items()
                     body = {"ok": True, "probs": request.harness_probs(task["question"]["type"], answer),
                             "model": reply["model"], "usage": reply["usage"], "error": None,
-                            "latency_s": time.perf_counter() - started, "raw": None}
+                            "latency_s": time.perf_counter() - started, "raw": scored["raw"]}
                 else:
                     status, body = 404, {"error": f"no route {self.path}"}
             except (ValueError, KeyError, TypeError) as error:  # a malformed request, not a server fault
@@ -86,9 +87,13 @@ def graph_lines(decider):
 
 def build_parser():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser.add_argument("--base-loader", choices=("hopper", "gemma-4-12b-it"), default="hopper",
+                        help="weight loader; the default is the unchanged Hopper path")
     parser.add_argument("--adapter", default=HF_REPO, help=f"LoRA adapter directory or Hugging Face repo id (default {HF_REPO})")
     parser.add_argument("--map", default=str(MAP), help="calibration map JSON (default: the one shipped in the package)")
     parser.add_argument("--no-map", action="store_true", help="serve raw probabilities, without the calibration map")
+    parser.add_argument("--readout-map", default=None,
+                        help="readout-bias/readout-seal-v2 JSON (required by --base-loader gemma-4-12b-it)")
     parser.add_argument("--host", default="0.0.0.0")
     parser.add_argument("--port", type=int, default=8080)
     parser.add_argument("--name", default=NAME, help=f"the `model` field every reply carries (default {NAME})")
@@ -131,6 +136,28 @@ def shortlist_config(args):
                             seed=args.shortlist_seed, embedder=args.embedding_model, embedder_revision=args.embedding_revision)
 
 
+_DEFAULT_CONFIG = object()
+
+
+def load_decider(args, *, config=_DEFAULT_CONFIG, frozen_factory=None):
+    """Dispatch the requested weight loader while preserving the default constructor call."""
+    if args.base_loader == "hopper":
+        if config is _DEFAULT_CONFIG:
+            config = shortlist_config(args)
+        from hopper_decisions.model import Decider
+        return Decider(adapter=args.adapter, calibration_map=None if args.no_map else args.map,
+                       allow_slow_kernels=args.allow_slow_kernels, name=args.name,
+                       cuda_graphs=args.cuda_graphs, shortlist=config,
+                       **({"warm_lengths": ()} if args.no_length_warmup else {}))
+    if not args.readout_map:
+        raise ValueError("--readout-map is required by --base-loader gemma-4-12b-it")
+    if frozen_factory is None:
+        from hopper_decisions.frozen import FrozenDecider
+        frozen_factory = FrozenDecider.from_pretrained
+    name = "gemma-4-12b-it" if args.name == NAME else args.name
+    return frozen_factory(args.readout_map, name=name)
+
+
 def main():
     parser = build_parser()
     args = parser.parse_args()
@@ -139,31 +166,35 @@ def main():
     except ValueError as error:
         parser.error(str(error))
     from hopper_decisions import fastpath
-    from hopper_decisions.model import Decider
     try:
-        decider = Decider(adapter=args.adapter, calibration_map=None if args.no_map else args.map,
-                          allow_slow_kernels=args.allow_slow_kernels, name=args.name,
-                          cuda_graphs=args.cuda_graphs, shortlist=config,
-                          **({"warm_lengths": ()} if args.no_length_warmup else {}))
+        decider = load_decider(args, config=config)
     except fastpath.SlowKernels as error:
         sys.exit(str(error))  # exit status 1, the message on stderr
+    except ValueError as error:
+        if args.base_loader == "hopper":
+            raise
+        sys.exit(str(error))
     gpu = decider.gpu
     print(f"gpu: {gpu['name']}, compute capability {gpu['capability']}, CUDA {gpu['cuda']}, torch {gpu.get('torch')}",
           flush=True)
-    for op, info in decider.kernels.items():
-        print(f"kernel {op}: {info['implementation']}{'' if info['fast'] else ' (SLOW reference path)'}"
-              f"{' [ran]' if info['ran'] else ''}", flush=True)
-    if decider.slow_kernels:
-        print("WARNING: --allow-slow-kernels: serving on the slow reference path; do not time this run.", flush=True)
+    if getattr(decider, "loader", "hopper") == "hopper":
+        for op, info in decider.kernels.items():
+            print(f"kernel {op}: {info['implementation']}{'' if info['fast'] else ' (SLOW reference path)'}"
+                  f"{' [ran]' if info['ran'] else ''}", flush=True)
+        if decider.slow_kernels:
+            print("WARNING: --allow-slow-kernels: serving on the slow reference path; do not time this run.", flush=True)
+        else:
+            print("fast-kernel check passed", flush=True)
+        count, seconds = decider.warm_seconds
+        print(f"length warm-up: {count} lengths in {seconds:.1f} s", flush=True)
+        for line in graph_lines(decider) or ["cuda graphs: off (the default; --cuda-graphs opts in); every request "
+                                             "runs eager, as in 1.1.0"]:
+            print(line, flush=True)
+        print(config.describe() if config else "shortlist: off; choice questions over 26 options are refused",
+              flush=True)
     else:
-        print("fast-kernel check passed", flush=True)
-    count, seconds = decider.warm_seconds
-    print(f"length warm-up: {count} lengths in {seconds:.1f} s", flush=True)
-    for line in graph_lines(decider) or ["cuda graphs: off (the default; --cuda-graphs opts in); every request "
-                                         "runs eager, as in 1.1.0"]:
-        print(line, flush=True)
-    print(config.describe() if config else "shortlist: off; choice questions over 26 options are refused",
-          flush=True)
+        print("base loader: frozen google/gemma-4-12B-it, bf16, SDPA, eager batch one", flush=True)
+        print("shortlist: seeded tournament, k=10, choice questions over 26 options, residual 0.05", flush=True)
     print(f"serving {decider.name} on {args.host}:{args.port}", flush=True)
     HTTPServer((args.host, args.port), handler(decider)).serve_forever()
 
