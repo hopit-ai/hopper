@@ -198,7 +198,7 @@ def main():
         print(config.describe() if config else "shortlist: off; choice questions over 26 options are refused",
               flush=True)
     else:
-        state = "with merged PEFT adapter" if args.adapter is not None else "frozen"
+        state = "with PEFT adapter (unmerged)" if args.adapter is not None else "frozen"
         print(f"base loader: {state} google/gemma-4-12B-it, bf16, SDPA, eager batch one", flush=True)
         print("shortlist: seeded tournament, k=10, choice questions over 26 options, residual 0.05", flush=True)
     print(f"serving {decider.name} on {args.host}:{args.port}", flush=True)

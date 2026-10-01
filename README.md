@@ -22,8 +22,9 @@ download commands for Hopper (G) are under "Hopper (G): the general-purpose line
 This unpublished variant is the frozen `google/gemma-4-12B-it` base at revision
 `707f0a3b8a3c7ad586ed01e27eafbad8a27dd0f7`, plus a PEFT LoRA adapter and a readout map fitted for
 that adapter. The LoRA has rank 32, alpha 64, and targets the seven text projections: `q_proj`,
-`k_proj`, `v_proj`, `o_proj`, `gate_proj`, `up_proj`, and `down_proj`. It is merged into the bf16
-base weights once at load.
+`k_proj`, `v_proj`, `o_proj`, `gate_proj`, `up_proj`, and `down_proj`. It is loaded as a separate
+low-rank path and is not merged into the bf16 base weights: in a check on 1,932 decisions, merging
+changed about 2% of the chosen answers.
 
 The readout map uses the same sealed JSON schema as
 `hopper_decisions/maps/hopper-12b-readout.json`: one temperature plus position priors for original

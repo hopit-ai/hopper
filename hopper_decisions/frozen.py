@@ -30,12 +30,17 @@ def _adapter_spec(value):
     return source, revision
 
 
-def _merge_adapter(model, adapter):
-    """Load a PEFT adapter and merge it once, matching Hopper's established 4B path."""
+def _load_adapter(model, adapter):
+    """Load a PEFT adapter and keep it unmerged.
+
+    Merging the LoRA into the bf16 weights rounds them and changed 2.1% of top
+    choices on 1,932 decisions, so the adapter stays a separate low-rank path,
+    exactly as it was evaluated.
+    """
     from peft import PeftModel
     source, revision = _adapter_spec(adapter)
     kwargs = {"revision": revision} if revision is not None else {}
-    return PeftModel.from_pretrained(model, source, **kwargs).merge_and_unload()
+    return PeftModel.from_pretrained(model, source, **kwargs)
 
 
 def _flat_ids(value):
@@ -123,7 +128,7 @@ class FrozenDecider:
         if resolved != REVISION:
             raise ValueError(f"model resolved to {resolved}, not pinned revision {REVISION}")
         if adapter is not None:
-            model = _merge_adapter(model, adapter)
+            model = _load_adapter(model, adapter)
         return cls(model, tokenizer, readout, name=name, device=device)
 
     def encode(self, example):

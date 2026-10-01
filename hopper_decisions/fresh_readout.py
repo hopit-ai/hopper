@@ -10,6 +10,8 @@ from pathlib import Path
 
 VERSION = "readout-bias/readout-seal-v2"
 VARIANT = "sealed-d+k2"
+# A position prior fitted on fewer menus than this is treated as identity, as in the fit.
+MIN_PRIOR_MENUS = 20
 
 
 def _softmax_logs(probs, names, temperature=1.0, offsets=None):
@@ -76,7 +78,7 @@ class FreshReadout:
         names, corrected = list(probs), dict(probs)
         if example.get("kind") == "choice":
             fitted = self.position_priors.get(str(len(names)))
-            if fitted:
+            if fitted and fitted["n_k"] >= MIN_PRIOR_MENUS:
                 corrected = _softmax_logs(corrected, names,
                                           offsets=[math.log(value) for value in fitted["ratio"]])
         return _softmax_logs(corrected, names, self.temperature)

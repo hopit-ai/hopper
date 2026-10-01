@@ -65,8 +65,9 @@ adapter does not change its terms.
 Hopper 12B (trained) is an unpublished combination of the frozen `google/gemma-4-12B-it` base at
 revision `707f0a3b8a3c7ad586ed01e27eafbad8a27dd0f7`, a PEFT LoRA adapter, and a separately fitted
 readout map. The adapter uses rank 32, alpha 64, and the `q_proj`, `k_proj`, `v_proj`, `o_proj`,
-`gate_proj`, `up_proj`, and `down_proj` text projections. Serving merges it into the bf16 weights at
-load and otherwise retains the frozen path's prompt, option-letter readout, and inference settings.
+`gate_proj`, `up_proj`, and `down_proj` text projections. Serving keeps it as a separate low-rank
+path (it is not merged into the bf16 weights, which changed about 2% of decisions in a check) and
+otherwise retains the frozen path's prompt, option-letter readout, and inference settings.
 
 The readout artifact has the `readout-bias/readout-seal-v2` schema: a temperature and choice-position
 priors for original two- and four-option menus. The priors do not affect other answer types or menu

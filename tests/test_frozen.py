@@ -12,7 +12,7 @@ import pytest
 
 from hopper_decisions import HF_REPO, MAP, NAME, request, server, shortlist
 from hopper_decisions.fresh_readout import FreshReadout, VARIANT, VERSION
-from hopper_decisions.frozen import BASE, K, RESIDUAL, REVISION, SEED, FrozenDecider, _adapter_spec, _merge_adapter
+from hopper_decisions.frozen import BASE, K, RESIDUAL, REVISION, SEED, FrozenDecider, _adapter_spec, _load_adapter
 
 
 def seal(parameters, **extra):
@@ -60,8 +60,8 @@ def test_position_priors_are_applied_before_the_temperature():
 def test_position_priors_only_touch_original_two_and_four_option_choice_menus():
     mapping = FreshReadout.from_dict(seal({
         "position_priors": {
-            "2": {"n_k": 4, "ratio": [2.0, 0.5]},
-            "4": {"n_k": 4, "ratio": [2.0, 1.0, 1.0, 0.5]},
+            "2": {"n_k": 40, "ratio": [2.0, 0.5]},
+            "4": {"n_k": 40, "ratio": [2.0, 1.0, 1.0, 0.5]},
         },
         "temperature": 1.0,
     }))
@@ -258,7 +258,7 @@ def test_adapter_spec_accepts_local_paths_and_pinned_hub_ids(tmp_path):
         _adapter_spec("@abc123")
 
 
-def test_tiny_seven_projection_lora_is_merged_and_changes_logits(tmp_path):
+def test_tiny_seven_projection_lora_stays_unmerged_and_changes_logits(tmp_path):
     torch = pytest.importorskip("torch")
     transformers = pytest.importorskip("transformers")
     peft = pytest.importorskip("peft")
@@ -290,12 +290,21 @@ def test_tiny_seven_projection_lora_is_merged_and_changes_logits(tmp_path):
     ids = torch.tensor([[1, 2, 3, 4]])
     with torch.inference_mode():
         before = fresh(input_ids=ids).logits
-    merged = _merge_adapter(fresh, adapter_dir).eval()
+    loaded = _load_adapter(fresh, adapter_dir).eval()
     with torch.inference_mode():
-        after = merged(input_ids=ids).logits
+        after = loaded(input_ids=ids, logits_to_keep=1).logits
 
     saved = json.loads((adapter_dir / "adapter_config.json").read_text())
     assert saved["r"] == 32 and saved["lora_alpha"] == 64
     assert set(saved["target_modules"]) == set(target_modules)
-    assert not torch.equal(before, after)
-    assert "Peft" not in type(merged).__name__
+    assert not torch.equal(before[:, -1:], after)
+    assert "Peft" in type(loaded).__name__
+
+
+def test_position_priors_fitted_on_few_menus_are_identity():
+    few = FreshReadout.from_dict(seal({
+        "position_priors": {"2": {"n_k": 19, "ratio": [2.0, 0.5]}},
+        "temperature": 1.0,
+    }))
+    probs = {"left": 0.4, "right": 0.6}
+    assert few.apply(probs, {"kind": "choice"}) == pytest.approx(probs)
