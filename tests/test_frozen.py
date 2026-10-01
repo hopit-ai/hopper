@@ -159,11 +159,13 @@ class TinyModel:
     def eval(self):
         return self
 
-    def __call__(self, *, input_ids, use_cache, return_dict):
+    def __call__(self, *, input_ids, use_cache, return_dict, logits_to_keep=None):
         import torch
 
+        # The decider must request only the last position (long Index prompts OOM otherwise).
+        assert logits_to_keep == 1
         self.calls.append((tuple(input_ids.shape), use_cache, return_dict))
-        logits = torch.zeros((1, input_ids.shape[1], 26), dtype=torch.float32)
+        logits = torch.zeros((1, 1, 26), dtype=torch.float32)
         logits[0, -1, :3] = torch.log(torch.tensor([0.7, 0.2, 0.1]))
         return types.SimpleNamespace(logits=logits)
 

@@ -139,7 +139,7 @@ class FrozenDecider:
         import torch
         tensor = torch.tensor([list(ids)], dtype=torch.long, device=self.device)
         with torch.inference_mode():
-            logits = self.model(input_ids=tensor, use_cache=False, return_dict=True).logits[
+            logits = self.model(input_ids=tensor, use_cache=False, return_dict=True, logits_to_keep=1).logits[
                 0, -1, self.letter_ids[:count]].float()
             return torch.softmax(logits, dim=-1).tolist()
 
