@@ -60,6 +60,33 @@ only, because of the RACE training-data terms described above and under "Trainin
 model is Apache-2.0 ([licence](https://huggingface.co/Qwen/Qwen3.5-4B/blob/main/LICENSE)), and this
 adapter does not change its terms.
 
+## Hopper 12B (trained) — draft
+
+Hopper 12B (trained) is an unpublished combination of the frozen `google/gemma-4-12B-it` base at
+revision `707f0a3b8a3c7ad586ed01e27eafbad8a27dd0f7`, a PEFT LoRA adapter, and a separately fitted
+readout map. The adapter uses rank 32, alpha 64, and the `q_proj`, `k_proj`, `v_proj`, `o_proj`,
+`gate_proj`, `up_proj`, and `down_proj` text projections. Serving merges it into the bf16 weights at
+load and otherwise retains the frozen path's prompt, option-letter readout, and inference settings.
+
+The readout artifact has the `readout-bias/readout-seal-v2` schema: a temperature and choice-position
+priors for original two- and four-option menus. The priors do not affect other answer types or menu
+sizes. Long menus keep the seeded tournament shortlist (`k=10`, residual `0.05`); qualification
+scores stay raw at temperature 1, and only the concluding pass receives the trained temperature.
+
+```sh
+hopper-serve --base-loader gemma-4-12b-it \
+  --adapter ./hopper-12b-adapter \
+  --readout-map ./hopper-12b-trained-readout.json
+```
+
+`--adapter owner/repo@revision` is also accepted. With no `--adapter`, this command family retains
+the frozen 12B behavior.
+
+The base model remains subject to the Gemma terms. The adapter licence is to be decided by the
+owner before publication. The training mixture includes CC BY-SA material, so publication must
+include the required attribution and comply with applicable share-alike conditions. No benchmark
+result or performance claim is made for this draft.
+
 ## Leaderboards (official)
 
 - **[JevBench](https://benchmarkheaven.com/jev-models)**: **59.43, #7** in v1.4.2.2 (27 Sep 2026), measured by the

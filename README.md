@@ -17,6 +17,37 @@ general-purpose line built for the [Jev Decision Index](https://huggingface.co/s
 All three use the same prompt, readout, calibration map and wire format; only the adapter weights differ. Details and
 download commands for Hopper (G) are under "Hopper (G): the general-purpose line" below.
 
+## Hopper 12B (trained) — draft
+
+This unpublished variant is the frozen `google/gemma-4-12B-it` base at revision
+`707f0a3b8a3c7ad586ed01e27eafbad8a27dd0f7`, plus a PEFT LoRA adapter and a readout map fitted for
+that adapter. The LoRA has rank 32, alpha 64, and targets the seven text projections: `q_proj`,
+`k_proj`, `v_proj`, `o_proj`, `gate_proj`, `up_proj`, and `down_proj`. It is merged into the bf16
+base weights once at load.
+
+The readout map uses the same sealed JSON schema as
+`hopper_decisions/maps/hopper-12b-readout.json`: one temperature plus position priors for original
+two- and four-option choice menus. Priors are not applied to `noul` or score questions, other menu
+sizes, or long-menu qualification passes. Long menus retain the seeded tournament shortlist with
+`k=10`, residual mass `0.05`, and raw temperature-1 qualification scores. The concluding pass uses
+the fitted temperature without a position prior.
+
+After exporting the adapter and its fitted readout map, serve a local copy with:
+
+```sh
+hopper-serve --base-loader gemma-4-12b-it \
+  --adapter ./hopper-12b-adapter \
+  --readout-map ./hopper-12b-trained-readout.json
+```
+
+The adapter may instead be a Hub id pinned as `owner/repo@revision`. Omitting `--adapter` preserves
+the frozen 12B path.
+
+The base model is governed by the Gemma terms. The licence for the adapter is pending owner
+approval. Its training data includes CC BY-SA sources; publication must preserve the required
+attribution and account for the licence's share-alike conditions. This draft makes no benchmark
+claims.
+
 Hopper is a LoRA adapter on
 [`Qwen/Qwen3.5-4B`](https://huggingface.co/Qwen/Qwen3.5-4B) at revision
 `851bf6e806efd8d0a36b00ddf55e13ccb7b8cd0a`, merged into the bf16 weights at load. Each decision

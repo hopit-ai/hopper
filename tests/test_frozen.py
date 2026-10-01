@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import copy
 import hashlib
 import io
 import json
@@ -11,7 +12,7 @@ import pytest
 
 from hopper_decisions import HF_REPO, MAP, NAME, request, server, shortlist
 from hopper_decisions.fresh_readout import FreshReadout, VARIANT, VERSION
-from hopper_decisions.frozen import BASE, K, RESIDUAL, REVISION, SEED, FrozenDecider
+from hopper_decisions.frozen import BASE, K, RESIDUAL, REVISION, SEED, FrozenDecider, _adapter_spec, _merge_adapter
 
 
 def seal(parameters, **extra):
@@ -56,7 +57,26 @@ def test_position_priors_are_applied_before_the_temperature():
     })
 
 
-def test_frozen_base_loader_dispatches_without_adapter_or_graph_arguments(tmp_path):
+def test_position_priors_only_touch_original_two_and_four_option_choice_menus():
+    mapping = FreshReadout.from_dict(seal({
+        "position_priors": {
+            "2": {"n_k": 4, "ratio": [2.0, 0.5]},
+            "4": {"n_k": 4, "ratio": [2.0, 1.0, 1.0, 0.5]},
+        },
+        "temperature": 1.0,
+    }))
+    two = {"a": 0.5, "b": 0.5}
+    three = {"a": 0.5, "b": 0.3, "c": 0.2}
+    four = {"a": 0.25, "b": 0.25, "c": 0.25, "d": 0.25}
+    assert mapping.apply(two, {"kind": "choice"}) == pytest.approx({"a": 0.8, "b": 0.2})
+    assert mapping.apply(four, {"kind": "choice"}) == pytest.approx(
+        {"a": 4 / 9, "b": 2 / 9, "c": 2 / 9, "d": 1 / 9})
+    assert mapping.apply(three, {"kind": "choice"}) == pytest.approx(three)
+    assert mapping.apply(two, {"kind": "noul"}) == pytest.approx(two)
+    assert mapping.apply_shortlist(two) == pytest.approx(two)
+
+
+def test_frozen_base_loader_dispatches_adapter_but_not_graph_arguments(tmp_path):
     args = server.build_parser().parse_args([
         "--base-loader", "gemma-4-12b-it", "--readout-map", str(tmp_path / "readout.json"),
         "--adapter", "unused", "--cuda-graphs",
@@ -68,8 +88,23 @@ def test_frozen_base_loader_dispatches_without_adapter_or_graph_arguments(tmp_pa
         return sentinel
 
     assert server.load_decider(args, frozen_factory=factory) is sentinel
-    assert calls == [(str(tmp_path / "readout.json"), {"name": "gemma-4-12b-it"})]
+    assert calls == [(str(tmp_path / "readout.json"), {
+        "name": "gemma-4-12b-it", "adapter": "unused"})]
     assert K == 10 and RESIDUAL == 0.05 and SEED == 0
+
+
+def test_frozen_base_loader_without_adapter_keeps_the_original_factory_call(tmp_path):
+    args = server.build_parser().parse_args([
+        "--base-loader", "gemma-4-12b-it", "--readout-map", str(tmp_path / "readout.json"),
+    ])
+    calls = []
+
+    def factory(path, **kwargs):
+        calls.append((path, kwargs))
+        return object()
+
+    server.load_decider(args, frozen_factory=factory)
+    assert calls == [(str(tmp_path / "readout.json"), {"name": "gemma-4-12b-it"})]
 
 
 def test_frozen_base_loader_requires_a_readout_map():
@@ -152,6 +187,17 @@ def test_tiny_frozen_model_uses_batch_one_and_returns_pre_map_probabilities():
     assert decider.graph_status == decider.graph_plan == {}
 
 
+def test_no_adapter_response_is_the_12b_1_0_0_byte_snapshot():
+    mapping = FreshReadout.from_dict(seal({"position_priors": {}, "temperature": 1.0}))
+    decider = FrozenDecider(TinyModel(), TinyTokenizer(), mapping, device="cpu")
+    encoded = json.dumps(decider.decide(choice_request()), sort_keys=True, separators=(",", ":")).encode()
+    assert encoded == (
+        b'{"answers":{"decision":{"choice":"a","probabilities":{"a":0.700000008940697,'
+        b'"b":0.1999999940395354,"c":0.09999999701976765},"type":"choice"}},'
+        b'"model":"gemma-4-12b-it","usage":{"input_tokens":2,"output_tokens":0}}'
+    )
+
+
 def test_run_route_returns_the_pre_map_distribution_without_a_socket():
     mapping = FreshReadout.from_dict(seal({"position_priors": {}, "temperature": 2.0}))
     decider = FrozenDecider(TinyModel(), TinyTokenizer(), mapping, device="cpu")
@@ -198,3 +244,56 @@ def test_pretrained_loader_pins_weights_dtype_attention_and_device(monkeypatch):
         ("model", BASE, {"revision": REVISION, "dtype": torch.bfloat16, "device_map": "cpu",
                          "attn_implementation": "sdpa", "low_cpu_mem_usage": True}),
     ]
+
+
+def test_adapter_spec_accepts_local_paths_and_pinned_hub_ids(tmp_path):
+    local = tmp_path / "adapter@local"
+    local.mkdir()
+    assert _adapter_spec(local) == (str(local), None)
+    assert _adapter_spec("owner/model") == ("owner/model", None)
+    assert _adapter_spec("owner/model@abc123") == ("owner/model", "abc123")
+    with pytest.raises(ValueError, match="adapter must be"):
+        _adapter_spec("@abc123")
+
+
+def test_tiny_seven_projection_lora_is_merged_and_changes_logits(tmp_path):
+    torch = pytest.importorskip("torch")
+    transformers = pytest.importorskip("transformers")
+    peft = pytest.importorskip("peft")
+
+    torch.manual_seed(7)
+    config = transformers.LlamaConfig(
+        vocab_size=32, hidden_size=16, intermediate_size=32, num_hidden_layers=1,
+        num_attention_heads=2, num_key_value_heads=2, max_position_embeddings=16,
+        tie_word_embeddings=False,
+    )
+    base_dir = tmp_path / "tiny-base"
+    config.save_pretrained(base_dir)
+    config._name_or_path = str(base_dir)
+    base = transformers.LlamaForCausalLM(config).eval()
+    initial = copy.deepcopy(base.state_dict())
+    target_modules = ["q_proj", "k_proj", "v_proj", "o_proj", "gate_proj", "up_proj", "down_proj"]
+    adapted = peft.get_peft_model(base, peft.LoraConfig(
+        task_type="CAUSAL_LM", r=32, lora_alpha=64, lora_dropout=0.0,
+        target_modules=target_modules,
+    ))
+    for module in adapted.modules():
+        if hasattr(module, "lora_B") and "default" in module.lora_B:
+            module.lora_B["default"].weight.data.fill_(0.125)
+    adapter_dir = tmp_path / "tiny-adapter"
+    adapted.save_pretrained(adapter_dir)
+
+    fresh = transformers.LlamaForCausalLM(config).eval()
+    fresh.load_state_dict(initial)
+    ids = torch.tensor([[1, 2, 3, 4]])
+    with torch.inference_mode():
+        before = fresh(input_ids=ids).logits
+    merged = _merge_adapter(fresh, adapter_dir).eval()
+    with torch.inference_mode():
+        after = merged(input_ids=ids).logits
+
+    saved = json.loads((adapter_dir / "adapter_config.json").read_text())
+    assert saved["r"] == 32 and saved["lora_alpha"] == 64
+    assert set(saved["target_modules"]) == set(target_modules)
+    assert not torch.equal(before, after)
+    assert "Peft" not in type(merged).__name__

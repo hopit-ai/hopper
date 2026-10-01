@@ -89,7 +89,9 @@ def build_parser():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--base-loader", choices=("hopper", "gemma-4-12b-it"), default="hopper",
                         help="weight loader; the default is the unchanged Hopper path")
-    parser.add_argument("--adapter", default=HF_REPO, help=f"LoRA adapter directory or Hugging Face repo id (default {HF_REPO})")
+    parser.add_argument("--adapter", default=None,
+                        help=f"LoRA adapter directory or Hub repo id, optionally followed by @revision; "
+                             f"the hopper loader defaults to {HF_REPO}, while the 12B loader defaults to none")
     parser.add_argument("--map", default=str(MAP), help="calibration map JSON (default: the one shipped in the package)")
     parser.add_argument("--no-map", action="store_true", help="serve raw probabilities, without the calibration map")
     parser.add_argument("--readout-map", default=None,
@@ -145,7 +147,7 @@ def load_decider(args, *, config=_DEFAULT_CONFIG, frozen_factory=None):
         if config is _DEFAULT_CONFIG:
             config = shortlist_config(args)
         from hopper_decisions.model import Decider
-        return Decider(adapter=args.adapter, calibration_map=None if args.no_map else args.map,
+        return Decider(adapter=args.adapter or HF_REPO, calibration_map=None if args.no_map else args.map,
                        allow_slow_kernels=args.allow_slow_kernels, name=args.name,
                        cuda_graphs=args.cuda_graphs, shortlist=config,
                        **({"warm_lengths": ()} if args.no_length_warmup else {}))
@@ -155,7 +157,10 @@ def load_decider(args, *, config=_DEFAULT_CONFIG, frozen_factory=None):
         from hopper_decisions.frozen import FrozenDecider
         frozen_factory = FrozenDecider.from_pretrained
     name = "gemma-4-12b-it" if args.name == NAME else args.name
-    return frozen_factory(args.readout_map, name=name)
+    kwargs = {"name": name}
+    if args.adapter is not None:
+        kwargs["adapter"] = args.adapter
+    return frozen_factory(args.readout_map, **kwargs)
 
 
 def main():
@@ -193,7 +198,8 @@ def main():
         print(config.describe() if config else "shortlist: off; choice questions over 26 options are refused",
               flush=True)
     else:
-        print("base loader: frozen google/gemma-4-12B-it, bf16, SDPA, eager batch one", flush=True)
+        state = "with merged PEFT adapter" if args.adapter is not None else "frozen"
+        print(f"base loader: {state} google/gemma-4-12B-it, bf16, SDPA, eager batch one", flush=True)
         print("shortlist: seeded tournament, k=10, choice questions over 26 options, residual 0.05", flush=True)
     print(f"serving {decider.name} on {args.host}:{args.port}", flush=True)
     HTTPServer((args.host, args.port), handler(decider)).serve_forever()

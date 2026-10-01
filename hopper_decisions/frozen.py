@@ -1,4 +1,4 @@
-"""Frozen base loader behind Hopper's existing HTTP response contract."""
+"""Gemma base loader behind Hopper's existing HTTP response contract."""
 
 from __future__ import annotations
 
@@ -7,6 +7,7 @@ import math
 import random
 import time
 from collections.abc import Mapping
+from pathlib import Path
 
 from hopper_decisions import fastpath, prompt, request
 from hopper_decisions.fresh_readout import FreshReadout
@@ -16,6 +17,25 @@ BASE = "google/gemma-4-12B-it"
 REVISION = "707f0a3b8a3c7ad586ed01e27eafbad8a27dd0f7"
 NAME = "gemma-4-12b-it"
 LIMIT, K, RESIDUAL, SEED = len(prompt.LETTERS), 10, 0.05, 0
+
+
+def _adapter_spec(value):
+    """Return a PEFT source and optional revision from ``path-or-repo[@revision]``."""
+    source = str(value)
+    if Path(source).exists() or "@" not in source:
+        return source, None
+    source, separator, revision = source.rpartition("@")
+    if not separator or not source or not revision:
+        raise ValueError("adapter must be a directory or repo id, optionally followed by @revision")
+    return source, revision
+
+
+def _merge_adapter(model, adapter):
+    """Load a PEFT adapter and merge it once, matching Hopper's established 4B path."""
+    from peft import PeftModel
+    source, revision = _adapter_spec(adapter)
+    kwargs = {"revision": revision} if revision is not None else {}
+    return PeftModel.from_pretrained(model, source, **kwargs).merge_and_unload()
 
 
 def _flat_ids(value):
@@ -92,7 +112,7 @@ class FrozenDecider:
             self.gpu = {"name": str(self.device), "capability": None, "cuda": None, "torch": None}
 
     @classmethod
-    def from_pretrained(cls, readout, *, name=NAME, device="cuda"):
+    def from_pretrained(cls, readout, *, name=NAME, device="cuda", adapter=None):
         import torch
         from transformers import AutoModelForCausalLM, AutoTokenizer
         tokenizer = AutoTokenizer.from_pretrained(BASE, revision=REVISION)
@@ -102,6 +122,8 @@ class FrozenDecider:
         resolved = getattr(model.config, "_commit_hash", None) or REVISION
         if resolved != REVISION:
             raise ValueError(f"model resolved to {resolved}, not pinned revision {REVISION}")
+        if adapter is not None:
+            model = _merge_adapter(model, adapter)
         return cls(model, tokenizer, readout, name=name, device=device)
 
     def encode(self, example):
