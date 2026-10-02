@@ -42,7 +42,7 @@ is Apache-2.0, with the data attribution under "Hopper 12B (trained)" below.
 
 | model | JevBench | Jev Decision Index |
 | --- | --- | --- |
-| **Hopper** | submitted ([issue #14](https://github.com/fstandhartinger/jevbench/issues/14)); measured row 1.0.0: **67.5, #15** on v1.5.4 (30 Sep 2026): Intelligence 49.9, Calibration 87.9, Speed 87.2, Cost 62.3 | 1.1.1 was submitted and scored **36.71** (edition 0.2) and **39.67** (edition 0.2.1); its row has since been replaced by Hopper (G) 1.2 |
+| **Hopper** | submitted ([issue #14](https://github.com/fstandhartinger/jevbench/issues/14)); measured row 1.0.0: **67.5, #16** on v1.5.5 (2 Oct 2026): Intelligence 49.9, Calibration 87.9, Speed 87.2, Cost 62.3 | 1.1.1 was submitted and scored **36.71** (edition 0.2) and **39.67** (edition 0.2.1); its row has since been replaced by Hopper (G) 1.2 |
 | **Hopper (G) 1.2** | requested in [issue #112](https://github.com/fstandhartinger/jevbench/issues/112), which was then switched to 1.3 | submitted: **40.77** (edition 0.2.1), from a complete self-scored run of the suite; results at [`HopitAI/hopper-g-decision-index-results`](https://huggingface.co/datasets/HopitAI/hopper-g-decision-index-results) |
 | **Hopper (G) 1.3** | submitted ([issue #112](https://github.com/fstandhartinger/jevbench/issues/112)), not yet measured | not submitted |
 | **Hopper 12B** | submitted ([issue #164](https://github.com/fstandhartinger/jevbench/issues/164)), not yet measured; the request now asks for Hopper 12B (trained) in its place | not submitted |
