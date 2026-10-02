@@ -3,10 +3,14 @@ Copyright 2026 The Hopper authors
 
 The code in this repository is licensed under the Apache License, Version 2.0 (see LICENSE).
 
-The Hopper LoRA adapter weights are offered for research and demo use only, not for commercial
-use, because their training data included passages from RACE (via the cais/mmlu auxiliary set).
-RACE's authors release it for non-commercial research only, and its terms extend to derived data.
-See MODEL_CARD.md.
+The Hopper and Hopper (G) LoRA adapter weights are offered for research and demo use only, not for
+commercial use, because their training data included passages from RACE (via the cais/mmlu
+auxiliary set). RACE's authors release it for non-commercial research only, and its terms extend to
+derived data. See MODEL_CARD.md.
+
+The Hopper 12B (trained) LoRA adapter (HopitAI/hopper, branch hopper-12b) and its readout map
+(hopper_decisions/maps/hopper-12b-trained-readout.json) are licensed under the Apache License,
+Version 2.0. Their training data did not include RACE.
 
 Base model
   The adapter is trained on, and only runs with, Qwen/Qwen3.5-4B
@@ -14,6 +18,13 @@ Base model
   Copyright Alibaba Cloud, licensed under the Apache License, Version 2.0:
   https://huggingface.co/Qwen/Qwen3.5-4B/blob/main/LICENSE
   The base model's weights are not included here; they are downloaded from the Hugging Face Hub.
+
+Hopper 12B base model
+  `hopper-serve --base-loader gemma-4-12b-it` runs google/gemma-4-12B-it
+  (https://huggingface.co/google/gemma-4-12B-it, revision 707f0a3b8a3c7ad586ed01e27eafbad8a27dd0f7),
+  licensed under the Apache License, Version 2.0, subject to Gemma's upstream terms and
+  prohibited-use policy. Its weights are not included here; they are downloaded from the Hugging
+  Face Hub.
 
 Optional embedding model
   `hopper-serve --shortlist embedding` (off by default) uses Qwen/Qwen3-Embedding-0.6B
@@ -32,5 +43,11 @@ JevBench
   and contributors). No JevBench item is included in this repository or in the training data.
 
 Training data
-  The adapter's training data includes examples derived from the public datasets listed in
+  The Hopper adapter's training data includes examples derived from the public datasets listed in
   MODEL_CARD.md ("Training data"), each used under its own licence as stated there.
+  The Hopper 12B (trained) adapter was trained on rows converted (modified) from SNLI, ARC,
+  HotpotQA and SQuAD2 (CC BY-SA 4.0); CUAD, BANKING77, QASC and xLAM/APIGen (CC BY 4.0; APIGen:
+  Liu et al., 2024, arXiv:2406.18518); CLINC150 (CC BY 3.0); MAMS, ESCI, the Glaive-v2 and
+  Hermes-FC schemas, and ToolACE (Apache-2.0); CommonsenseQA (MIT); and API-Bank training data
+  (MIT Hub mirror; upstream Apache-2.0 notice conditions also followed). Links and credits are in
+  README.md ("Hopper 12B (trained)"). The adapter is distributed without its training data.

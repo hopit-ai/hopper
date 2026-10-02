@@ -1,5 +1,33 @@
 # Changes
 
+## Hopper 12B (trained) — 1.2.0 (tag 12b-1.1.0, {{RELEASE_DATE}})
+
+A new model on the Gemma base loader: a PEFT LoRA adapter (rank 32, alpha 64) for the frozen `google/gemma-4-12B-it`
+at revision `707f0a3b8a3c7ad586ed01e27eafbad8a27dd0f7`, published in `HopitAI/hopper` on the branch `hopper-12b`
+(revision `{{HF_REVISION}}`; `main`, the Qwen3.5-4B Hopper adapter, is unchanged). Adapter and readout map:
+Apache-2.0, with the training datasets' attribution in `README.md` and on the branch's model card.
+
+- **`--adapter` on the Gemma base loader.** `hopper-serve --base-loader gemma-4-12b-it --adapter
+  HopitAI/hopper@{{HF_REVISION}} --readout-map <map>` loads the adapter as a separate low-rank path. It is never merged:
+  a bf16 merge changed 2.1% of top choices on 1,932 decisions. Without `--adapter`, the frozen Hopper 12B path is
+  unchanged.
+- **A second readout map:** `hopper_decisions/maps/hopper-12b-trained-readout.json`
+  (`readout-bias/readout-seal-v2`, seal `65c72f71…4c818`): temperature 1.65 and position priors for two- and
+  four-option choice menus. A position prior fitted on fewer than 20 menus now acts as identity, matching the fit; both
+  shipped maps fit their priors on 74 or more menus, so neither is affected.
+- **Gemma decider:** logits are computed for the last position only; answers are identical.
+- **Training:** B-2, 13,674 requests (language, intent, knowledge/retrieval, tool choice, executable policy), then B-3,
+  8,313 requests (harder tool tasks from ToolACE, xLAM/APIGen and API-Bank training data, executable record-join and
+  numeric/threshold tasks, SQuAD2, and B-2 replay), one epoch each.
+- **Our held-out checks (B-3 against B-2):** {{CHECK_RESULTS}} These are results on our own sets, not benchmark
+  results.
+- **Measured** on one L40S, 50 serial requests: p50 0.136 s, p95 0.469 s with the adapter; p50 0.107 s, p95 0.300 s
+  frozen, in the same run. The package's test suite passed on that GPU (313 tests).
+- **Known limitations:** document/rule questions and abstention remain weak; the unmerged path is slower than a merged
+  load would be.
+
+The Hopper and Hopper (G) paths are unchanged.
+
 ## Hopper (G) 1.3 (tag g-1.3.0, 2026-09-28)
 
 New adapter weights on the Hopper (G) line, published at `HopitAI/hopper-g` (revision `8b4cd7c`); serving code and

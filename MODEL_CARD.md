@@ -60,33 +60,60 @@ only, because of the RACE training-data terms described above and under "Trainin
 model is Apache-2.0 ([licence](https://huggingface.co/Qwen/Qwen3.5-4B/blob/main/LICENSE)), and this
 adapter does not change its terms.
 
-## Hopper 12B (trained) — draft
+## Hopper 12B (trained)
 
-Hopper 12B (trained) is an unpublished combination of the frozen `google/gemma-4-12B-it` base at
-revision `707f0a3b8a3c7ad586ed01e27eafbad8a27dd0f7`, a PEFT LoRA adapter, and a separately fitted
-readout map. The adapter uses rank 32, alpha 64, and the `q_proj`, `k_proj`, `v_proj`, `o_proj`,
-`gate_proj`, `up_proj`, and `down_proj` text projections. Serving keeps it as a separate low-rank
-path (it is not merged into the bf16 weights, which changed about 2% of decisions in a check) and
-otherwise retains the frozen path's prompt, option-letter readout, and inference settings.
+Hopper 12B (trained) is a separate model, not this adapter: a PEFT LoRA adapter for the frozen
+[`google/gemma-4-12B-it`](https://huggingface.co/google/gemma-4-12B-it) base at revision
+`707f0a3b8a3c7ad586ed01e27eafbad8a27dd0f7`, with a separately fitted readout map. It is published in this repository
+on the branch [`hopper-12b`](https://huggingface.co/HopitAI/hopper/tree/hopper-12b) (revision `{{HF_REVISION}}`), with
+its own model card; this `main` branch keeps the Qwen3.5-4B Hopper adapter unchanged. Its adapter and readout map are
+licensed Apache-2.0, and its training data does not include RACE, so the research-and-demo note above does not apply to
+it.
 
-The readout artifact has the `readout-bias/readout-seal-v2` schema: a temperature and choice-position
-priors for original two- and four-option menus. The priors do not affect other answer types or menu
-sizes. Long menus keep the seeded tournament shortlist (`k=10`, residual `0.05`); qualification
-scores stay raw at temperature 1, and only the concluding pass receives the trained temperature.
+- **Adapter:** rank 32, alpha 64; `q_proj`, `k_proj`, `v_proj`, `o_proj`, `gate_proj`, `up_proj` and `down_proj`.
+- **Serving:** keep the adapter unmerged. A bf16 merge changed 2.1% of top choices on 1,932 decisions, so the serving
+  code (tag `12b-1.1.0`, package 1.2.0) loads it as a separate low-rank path.
+- **Readout:** the `readout-bias/readout-seal-v2` map `hopper-12b-trained-readout.json` (shipped in the package and on
+  the branch): temperature 1.65 and position priors for original two- and four-option choice menus. Long menus use the
+  seeded `k=10` tournament shortlist with residual mass `0.05`.
 
 ```sh
+pip install "git+https://github.com/hopit-ai/hopper@12b-1.1.0"
 hopper-serve --base-loader gemma-4-12b-it \
-  --adapter ./hopper-12b-adapter \
-  --readout-map ./hopper-12b-trained-readout.json
+  --adapter HopitAI/hopper@{{HF_REVISION}} \
+  --readout-map "$(python -c 'import hopper_decisions, pathlib; print(pathlib.Path(hopper_decisions.__file__).parent / "maps/hopper-12b-trained-readout.json")')" \
+  --port 8080
 ```
 
-`--adapter owner/repo@revision` is also accepted. With no `--adapter`, this command family retains
-the frozen 12B behavior.
+Pin the revision: `HopitAI/hopper` without one resolves to `main`, the Qwen3.5-4B adapter.
 
-The base model remains subject to the Gemma terms. The adapter licence is to be decided by the
-owner before publication. The training mixture includes CC BY-SA material, so publication must
-include the required attribution and comply with applicable share-alike conditions. No benchmark
-result or performance claim is made for this draft.
+**Training.** Two one-epoch stages at effective batch eight. B-2 used 13,674 requests (1,710 updates) from SNLI, MAMS,
+CUAD, BANKING77, CLINC150, CommonsenseQA, QASC, ARC, ESCI and HotpotQA, a tool catalogue built on Glaive-v2 and
+Hermes-FC schemas, executable policy decisions, and 697 stance/sarcasm rows from LLM-based generation. B-3 continued
+from the B-2 endpoint on 8,313 requests (1,040 updates): 1,373 harder tool rows and 600 legacy tool rows from ToolACE,
+xLAM/APIGen and API-Bank training data, 540 executable record joins, 540 executable numeric/threshold rows, 260 SQuAD2
+rows, and 5,000 B-2 replay rows. Manual review, automated correctness and shortcut checks, component-level
+deduplication and held-out exclusions were applied before training. No evaluation-benchmark item or output was used
+for training, readout fitting, or checkpoint selection.
+
+**Evaluation.** The registered comparison is B-3 against B-2 on our own held-out sets (harder tools; document/rule
+rows; retention):
+
+{{CHECK_RESULTS}}
+
+These measurements support claims only about the named held-out sets.
+
+**Licences and attribution.** The training data's own licences continue to apply to the data, and no training data is
+distributed with the adapter: CC BY-SA 4.0 for SNLI, ARC, HotpotQA and SQuAD2; CC BY 4.0 for CUAD, BANKING77, QASC and
+xLAM/APIGen (cited as APIGen, Liu et al., 2024, arXiv:2406.18518); CC BY 3.0 for CLINC150; Apache-2.0 for MAMS, ESCI,
+the Glaive-v2 and Hermes-FC schemas, and ToolACE; MIT for CommonsenseQA; and for API-Bank training data, MIT (Hub
+mirror) with the upstream subtree's Apache-2.0 notice conditions also followed. Every row was converted into an
+option-choice decision request. Links and credits are in the branch's model card and in the README.
+
+**Limitations.** Document/rule reasoning and abstention remain known weak areas. Accuracy and calibration can shift
+with task family, menu construction, language and serving hardware. The model can select a plausible but incorrect
+option; applications should keep domain review and a safe fallback. The unmerged path is slower than a merged load,
+but a merged copy is not decision-equivalent and is not supported.
 
 ## Leaderboards (official)
 

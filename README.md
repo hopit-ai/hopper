@@ -1,12 +1,13 @@
 # Hopper
 
-> **Research and demo use only (the Hopper and Hopper (G) adapters).** These adapters are published for research and demonstration. Its training data included passages from RACE (via the `cais/mmlu` auxiliary set), which its authors release for non-commercial research only and whose terms extend to derived data. Do not use these adapters commercially. Hopper 12B has no adapter and is not affected by this note.
+> **Research and demo use only (the Hopper and Hopper (G) adapters).** These adapters are published for research and demonstration. Its training data included passages from RACE (via the `cais/mmlu` auxiliary set), which its authors release for non-commercial research only and whose terms extend to derived data. Do not use these adapters commercially. Hopper 12B (frozen, no adapter) and Hopper 12B (trained), whose adapter is Apache-2.0 and was trained without RACE, are not affected by this note.
 
-A decision server for **four published models**, all served by this same code: **Hopper** and two versions of
-**Hopper (G)**, LoRA adapters on Qwen3.5-4B, and **Hopper 12B**, the frozen `google/gemma-4-12B-it` base model with
-this serving code and a locked readout map.
+A decision server for **five published models**, all served by this same code: **Hopper** and two versions of
+**Hopper (G)**, LoRA adapters on Qwen3.5-4B; **Hopper 12B**, the frozen `google/gemma-4-12B-it` base model with
+this serving code and a locked readout map; and **Hopper 12B (trained)**, a LoRA adapter on that same base with its
+own readout map.
 
-## The four models
+## The five models
 
 | model | adapter (pinned revision) | what it is | run it with |
 | --- | --- | --- | --- |
@@ -14,42 +15,12 @@ this serving code and a locked readout map.
 | **Hopper (G) 1.2** | [`HopitAI/hopper-g`](https://huggingface.co/HopitAI/hopper-g) @ `d60a1d6` (tag `g-1.2.0`) | general-purpose line, continued from Hopper 1.0 on a broader mix | download the revision, then `hopper-serve --adapter ./hopper-g` |
 | **Hopper (G) 1.3** | [`HopitAI/hopper-g`](https://huggingface.co/HopitAI/hopper-g) @ `8b4cd7c` (tag `g-1.3.0`) | continued from Hopper (G) 1.2 on new code-generated decision items; a disclosed, qualified release (see its model card) | download the revision, then `hopper-serve --adapter ./hopper-g` |
 | **Hopper 12B** | none: frozen [`google/gemma-4-12B-it`](https://huggingface.co/google/gemma-4-12B-it) @ `707f0a3` (code tag `12b-1.0.0`) | the Gemma-4-12B-it base model, unchanged, with this serving code and a locked readout map | install tag `12b-1.0.0`, then `hopper-serve --base-loader gemma-4-12b-it` (see "Hopper 12B" below) |
+| **Hopper 12B (trained)** | [`HopitAI/hopper`](https://huggingface.co/HopitAI/hopper/tree/hopper-12b), branch `hopper-12b` @ `{{HF_REVISION}}` (code tag `12b-1.1.0`) | a LoRA adapter (rank 32) on the same frozen Gemma-4-12B-it revision, served unmerged, with its own readout map; Apache-2.0 | install tag `12b-1.1.0`, then `hopper-serve --base-loader gemma-4-12b-it --adapter HopitAI/hopper@{{HF_REVISION}}` with its readout map (see "Hopper 12B (trained)" below) |
 
-The three adapters use the same prompt, readout, calibration map and wire format; only the adapter weights differ.
-Hopper 12B uses the same prompt, readout and wire format on a different base model, with its own readout map. Details
-are under "Hopper (G): the general-purpose line" and "Hopper 12B" below.
-
-## Hopper 12B (trained) — draft
-
-This unpublished variant is the frozen `google/gemma-4-12B-it` base at revision
-`707f0a3b8a3c7ad586ed01e27eafbad8a27dd0f7`, plus a PEFT LoRA adapter and a readout map fitted for
-that adapter. The LoRA has rank 32, alpha 64, and targets the seven text projections: `q_proj`,
-`k_proj`, `v_proj`, `o_proj`, `gate_proj`, `up_proj`, and `down_proj`. It is loaded as a separate
-low-rank path and is not merged into the bf16 base weights: in a check on 1,932 decisions, merging
-changed about 2% of the chosen answers.
-
-The readout map uses the same sealed JSON schema as
-`hopper_decisions/maps/hopper-12b-readout.json`: one temperature plus position priors for original
-two- and four-option choice menus. Priors are not applied to `noul` or score questions, other menu
-sizes, or long-menu qualification passes. Long menus retain the seeded tournament shortlist with
-`k=10`, residual mass `0.05`, and raw temperature-1 qualification scores. The concluding pass uses
-the fitted temperature without a position prior.
-
-After exporting the adapter and its fitted readout map, serve a local copy with:
-
-```sh
-hopper-serve --base-loader gemma-4-12b-it \
-  --adapter ./hopper-12b-adapter \
-  --readout-map ./hopper-12b-trained-readout.json
-```
-
-The adapter may instead be a Hub id pinned as `owner/repo@revision`. Omitting `--adapter` preserves
-the frozen 12B path.
-
-The base model is governed by the Gemma terms. The licence for the adapter is pending owner
-approval. Its training data includes CC BY-SA sources; publication must preserve the required
-attribution and account for the licence's share-alike conditions. This draft makes no benchmark
-claims.
+The three Qwen3.5-4B adapters use the same prompt, readout, calibration map and wire format; only the adapter weights
+differ. Hopper 12B and Hopper 12B (trained) use the same prompt, readout and wire format on a different base model,
+each with its own readout map. Details are under "Hopper (G): the general-purpose line", "Hopper 12B" and
+"Hopper 12B (trained)" below.
 
 Hopper is a LoRA adapter on
 [`Qwen/Qwen3.5-4B`](https://huggingface.co/Qwen/Qwen3.5-4B) at revision
@@ -62,9 +33,10 @@ never changes an answer.
 The server speaks the JevBench `/v1/systemone` wire format, so the harness's existing `typesafe`
 adapter runs unchanged. It also answers `remote_inproc`'s `POST /run`.
 
-Code: Apache-2.0, the same licence as the base model. See `LICENSE` and `NOTICE`. The adapter
-weights are offered for research and demo use only, because of the RACE training-data terms above
-(see `MODEL_CARD.md`, "Training data").
+Code: Apache-2.0, the same licence as the base model. See `LICENSE` and `NOTICE`. The Hopper and
+Hopper (G) adapter weights are offered for research and demo use only, because of the RACE
+training-data terms above (see `MODEL_CARD.md`, "Training data"). The Hopper 12B (trained) adapter
+is Apache-2.0, with the data attribution under "Hopper 12B (trained)" below.
 
 ## Where the models have been submitted
 
@@ -73,7 +45,8 @@ weights are offered for research and demo use only, because of the RACE training
 | **Hopper** | submitted ([issue #14](https://github.com/fstandhartinger/jevbench/issues/14)); measured row 1.0.0: **67.5, #15** on v1.5.4 (30 Sep 2026): Intelligence 49.9, Calibration 87.9, Speed 87.2, Cost 62.3 | 1.1.1 was submitted and scored **36.71** (edition 0.2) and **39.67** (edition 0.2.1); its row has since been replaced by Hopper (G) 1.2 |
 | **Hopper (G) 1.2** | requested in [issue #112](https://github.com/fstandhartinger/jevbench/issues/112), which was then switched to 1.3 | submitted: **40.77** (edition 0.2.1), from a complete self-scored run of the suite; results at [`HopitAI/hopper-g-decision-index-results`](https://huggingface.co/datasets/HopitAI/hopper-g-decision-index-results) |
 | **Hopper (G) 1.3** | submitted ([issue #112](https://github.com/fstandhartinger/jevbench/issues/112)), not yet measured | not submitted |
-| **Hopper 12B** | submitted ([issue #164](https://github.com/fstandhartinger/jevbench/issues/164)), not yet measured | not submitted |
+| **Hopper 12B** | submitted ([issue #164](https://github.com/fstandhartinger/jevbench/issues/164)), not yet measured; the request now asks for Hopper 12B (trained) in its place | not submitted |
+| **Hopper 12B (trained)** | requested in [issue #164](https://github.com/fstandhartinger/jevbench/issues/164) in place of Hopper 12B, not yet measured | not submitted |
 
 The official numbers and ranks are the boards' own and change as entrants are added: see the
 [JevBench board](https://benchmarkheaven.com/jev-models) and the
@@ -146,7 +119,121 @@ hopper-serve --base-loader gemma-4-12b-it \
 One 48 GB GPU is enough (bf16, about 24 GB of weights). On an L40S, through the package's HTTP route, we measured
 p50 0.094 s and p95 0.44 s on our own items. Licence: code Apache-2.0; the base weights are Apache-2.0 under Gemma's
 upstream terms and prohibited-use policy. The `--base-loader` option is on tag `12b-1.0.0`; the Hopper and Hopper (G)
-commands in this README are unchanged by it.
+commands in this README are unchanged by it. Tag `12b-1.1.0` keeps this frozen path when `--adapter` is omitted.
+
+## Hopper 12B (trained)
+
+**Hopper 12B (trained)** is the same frozen
+[`google/gemma-4-12B-it`](https://huggingface.co/google/gemma-4-12B-it) base at revision
+`707f0a3b8a3c7ad586ed01e27eafbad8a27dd0f7`, plus a PEFT LoRA adapter and a readout map fitted for that adapter. The
+adapter is published in [`HopitAI/hopper`](https://huggingface.co/HopitAI/hopper/tree/hopper-12b) on the branch
+`hopper-12b`, revision `{{HF_REVISION}}`; the repository's `main` branch still holds the Qwen3.5-4B Hopper adapter, which
+is unchanged. The serving code is tag `12b-1.1.0` (package version 1.2.0).
+
+- **Adapter:** rank 32, alpha 64, on the seven text projections `q_proj`, `k_proj`, `v_proj`, `o_proj`, `gate_proj`,
+  `up_proj` and `down_proj`. It is loaded as a separate low-rank path and is **not merged** into the bf16 base weights:
+  in a check on 1,932 decisions, a bf16 merge changed 2.1% of the top choices, so the package serves it unmerged, as
+  it was evaluated.
+- **Readout map:** `hopper_decisions/maps/hopper-12b-trained-readout.json`, shipped in the package (the same file is on
+  the Hub branch). It uses the same sealed `readout-bias/readout-seal-v2` schema as the frozen 12B map: one temperature
+  (T = 1.65) and position priors for original two- and four-option choice menus (fitted on 240 and 74 menus). Priors
+  do not apply to `noul` or score questions, other menu sizes, or long-menu qualification passes.
+- **Long menus:** the same seeded tournament shortlist as the frozen 12B (`k=10`, residual mass `0.05`).
+  Qualification passes use raw temperature-1 scores; the final pass uses the fitted temperature without a position
+  prior.
+
+```sh
+pip install "git+https://github.com/hopit-ai/hopper@12b-1.1.0"
+hopper-serve --base-loader gemma-4-12b-it \
+  --adapter HopitAI/hopper@{{HF_REVISION}} \
+  --readout-map "$(python -c 'import hopper_decisions, pathlib; print(pathlib.Path(hopper_decisions.__file__).parent / "maps/hopper-12b-trained-readout.json")')" \
+  --port 8080
+```
+
+`--adapter` takes a local directory or a Hub id followed by `@revision`. Always pin the revision here: without it,
+`HopitAI/hopper` resolves to `main`, the Qwen3.5-4B adapter, which does not fit this base. `--readout-map` takes a
+file path; it does not look maps up by name. To check the files first, download the branch and serve the local copy:
+
+```sh
+huggingface-cli download HopitAI/hopper --revision {{HF_REVISION}} --local-dir hopper-12b
+(cd hopper-12b && shasum -a 256 -c SHA256SUMS)
+hopper-serve --base-loader gemma-4-12b-it --adapter ./hopper-12b \
+  --readout-map ./hopper-12b/hopper-12b-trained-readout.json --port 8080
+```
+
+Omitting `--adapter` keeps the frozen Hopper 12B path, with its own map (`hopper-12b-readout.json`). Replies carry
+`"model": "gemma-4-12b-it"` in both cases unless `--name` is given.
+
+On one L40S (48 GB), 50 serial requests through the package measured p50 0.136 s and p95 0.469 s for the trained
+model, against p50 0.107 s and p95 0.300 s for the frozen 12B in the same test. In the same run, the package's test
+suite passed on the GPU (313 tests).
+
+### Training
+
+Training had two stages, both one epoch at effective batch eight, LoRA r32/alpha64, with the base frozen:
+
+- **B-2:** 13,674 requests (1,710 updates). Language (SNLI, MAMS, CUAD, and 697 stance/sarcasm items from LLM-based
+  generation), intent (BANKING77 and CLINC150), knowledge/retrieval (CommonsenseQA, QASC, ARC, ESCI and HotpotQA),
+  tool choice from a catalogue built on Glaive-v2 and Hermes-FC schemas, and executable long-policy decisions.
+- **B-3:** continued from the B-2 endpoint on 8,313 requests (1,040 updates): 788 large-catalogue tool choices, 342
+  tool-set rows, 243 tool-relevance rows, 600 legacy tool rows, 540 executable record joins, 540 executable
+  numeric/threshold rows, 260 SQuAD2 rows, and 5,000 replay requests sampled from B-2. The tool rows derive from the
+  training data of ToolACE, xLAM/APIGen and API-Bank.
+
+Before training, rows failing manual review, automated correctness and
+shortcut checks, component-level deduplication, or held-out exclusions were removed. No evaluation-benchmark item or
+output was used for training, readout fitting, or checkpoint selection.
+
+### Evaluation on our held-out sets
+
+The registered comparison is the B-3 endpoint against the B-2 endpoint, with paired bootstrap intervals, on three
+held-out checks: harder tool-set and tool-relevance rows; document/rule rows (record joins, numeric/threshold, SQuAD2);
+and retention.
+
+{{CHECK_RESULTS}}
+
+These results describe our own held-out sets only. They are not benchmark results.
+
+### Licence and data attribution
+
+- **Adapter and readout map:** Apache-2.0 (see `LICENSE`). No training data is distributed with them.
+- **Base model:** `google/gemma-4-12B-it`, Apache-2.0, subject to Gemma's upstream terms and prohibited-use policy.
+  The base weights are not included; they are downloaded from the Hugging Face Hub.
+- **Training data:** the adapter was trained on rows converted from the datasets below, each used under its own
+  licence. Every row was modified: reformatted into an option-choice decision request, usually with constructed
+  alternative options. The adapter licence does not replace these licences for the data itself.
+
+| dataset | licence |
+| --- | --- |
+| [SNLI](https://huggingface.co/datasets/stanfordnlp/snli) (Stanford NLP) | [CC BY-SA 4.0](https://creativecommons.org/licenses/by-sa/4.0/) |
+| [ARC](https://huggingface.co/datasets/allenai/ai2_arc) (Allen Institute for AI) | [CC BY-SA 4.0](https://creativecommons.org/licenses/by-sa/4.0/) |
+| [HotpotQA](https://huggingface.co/datasets/hotpotqa/hotpot_qa) | [CC BY-SA 4.0](https://creativecommons.org/licenses/by-sa/4.0/) |
+| [SQuAD2](https://huggingface.co/datasets/rajpurkar/squad_v2) (Stanford) | [CC BY-SA 4.0](https://creativecommons.org/licenses/by-sa/4.0/) |
+| [CUAD](https://huggingface.co/datasets/theatticusproject/cuad) (The Atticus Project) | [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/) |
+| [BANKING77](https://huggingface.co/datasets/PolyAI/banking77) (PolyAI) | [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/) |
+| [QASC](https://huggingface.co/datasets/allenai/qasc) (Allen Institute for AI) | [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/) |
+| [xLAM function-calling 60k](https://huggingface.co/datasets/Salesforce/xlam-function-calling-60k) (Salesforce, APIGen) | [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/) |
+| [CLINC150](https://huggingface.co/datasets/clinc/clinc_oos) | [CC BY 3.0](https://creativecommons.org/licenses/by/3.0/) |
+| [MAMS](https://github.com/siat-nlp/MAMS-for-ABSA) | [Apache-2.0](https://www.apache.org/licenses/LICENSE-2.0) |
+| [ESCI](https://huggingface.co/datasets/tasksource/esci) (Amazon Science, `amazon-science/esci-data`) | [Apache-2.0](https://www.apache.org/licenses/LICENSE-2.0) |
+| [Glaive function calling v2](https://huggingface.co/datasets/glaiveai/glaive-function-calling-v2) (schemas) | [Apache-2.0](https://www.apache.org/licenses/LICENSE-2.0) |
+| [Hermes function calling v1](https://huggingface.co/datasets/NousResearch/hermes-function-calling-v1) (schemas) | [Apache-2.0](https://www.apache.org/licenses/LICENSE-2.0) |
+| [ToolACE](https://huggingface.co/datasets/Team-ACE/ToolACE) | [Apache-2.0](https://www.apache.org/licenses/LICENSE-2.0) |
+| [API-Bank](https://huggingface.co/datasets/liminghao1630/API-Bank) (training data only) | MIT (Hub mirror); the upstream subtree carries Apache-2.0, and we follow both sets of notice conditions |
+| [CommonsenseQA](https://huggingface.co/datasets/tau/commonsense_qa) | MIT |
+
+xLAM/APIGen is used under its CC BY 4.0 terms with the attribution its authors request: APIGen: Automated Pipeline for
+Generating Verifiable and Diverse Function-Calling Datasets (Liu et al., 2024, arXiv:2406.18518). The executable rows
+and the stance/sarcasm rows are this project's own. None of these sources is RACE or the `cais/mmlu` auxiliary set,
+so the research-and-demo note at the top of this README does not apply to this adapter.
+
+### Limitations
+
+This is an option-readout decision model, not a general text generator. Document/rule questions, especially abstention
+and missing-information cases, remain a known weakness. Results may not transfer beyond the English task families in
+training and our held-out sets, and the model can pick a plausible but wrong option; keep domain review and a safe
+fallback where decisions matter. Serving the adapter unmerged is slower than a merged load would be, but a merged copy
+is not decision-equivalent and is not supported.
 
 ## Install and serve (RunPod, as tested)
 
@@ -455,7 +542,8 @@ pip install -e ".[test]" && pytest     # no GPU, no network
 
 ## Changes
 
-`CHANGELOG.md`. 1.1.1 answers choice questions with more than 26
+`CHANGELOG.md`. 1.2.0 (tag `12b-1.1.0`) adds Hopper 12B (trained): an optional unmerged LoRA adapter on the
+Gemma base loader and its readout map; the Hopper, Hopper (G) and frozen 12B paths are unchanged. 1.1.1 answers choice questions with more than 26
 options through a disclosed shortlist and leaves every question of 26 options or fewer exactly as
 1.1.0 answers it, with the same weights and calibration map; CUDA graphs are available but opt-in.
 It is for research and demo use (see `NOTICE`). 1.1.0 adds the in-process route above and replaces the calibration map with one

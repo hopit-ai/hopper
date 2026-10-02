@@ -32,6 +32,18 @@ def test_the_shipped_readout_is_the_locked_v2_artifact():
     assert set(mapping.position_priors) == {"2", "4"}
 
 
+def test_the_shipped_trained_readout_is_the_sealed_artifact():
+    path = MAP.parent / "hopper-12b-trained-readout.json"
+    assert hashlib.sha256(path.read_bytes()).hexdigest() == \
+        "ed0a7924ffa33be9abd2408fe90f3a750f6c25c86d8101c4ef9f06f07b4177aa"
+    assert json.loads(path.read_text())["seal_sha256"] == \
+        "65c72f717a74eccfc38e3906345927765a00d8e0fdd8c61e8658c55eec34c818"
+    mapping = FreshReadout.read(path)
+    assert mapping.variant == VARIANT
+    assert mapping.temperature == 1.65
+    assert {size: prior["n_k"] for size, prior in mapping.position_priors.items()} == {"2": 240, "4": 74}
+
+
 def test_the_readout_rejects_a_changed_body_with_the_old_self_hash(tmp_path):
     spec = seal({"position_priors": {}, "temperature": 2.0})
     spec["parameters"]["temperature"] = 3.0
