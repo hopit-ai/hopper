@@ -19,7 +19,7 @@ Apache-2.0, with the training datasets' attribution in `README.md` and on the br
 - **Training:** B-2, 13,674 requests (language, intent, knowledge/retrieval, tool choice, executable policy), then B-3,
   8,313 requests (harder tool tasks from ToolACE, xLAM/APIGen and API-Bank training data, executable record-join and
   numeric/threshold tasks, SQuAD2, and B-2 replay), one epoch each.
-- **Our held-out checks (B-3 against B-2):** {{CHECK_RESULTS}} These are results on our own sets, not benchmark
+- **Our held-out checks (B-3 against B-2):** harder tools +6.7 points (95% lower bound +1.7), document/rule decisions +16.1 (+10.6), retention +0.8 (−0.3); all three registered checks passed. These are results on our own sets, not benchmark
   results.
 - **Measured** on one L40S, 50 serial requests: p50 0.136 s, p95 0.469 s with the adapter; p50 0.107 s, p95 0.300 s
   frozen, in the same run. The package's test suite passed on that GPU (313 tests).

@@ -99,7 +99,14 @@ for training, readout fitting, or checkpoint selection.
 **Evaluation.** The registered comparison is B-3 against B-2 on our own held-out sets (harder tools; document/rule
 rows; retention):
 
-{{CHECK_RESULTS}}
+| Check (B-3 minus B-2, our held-out sets) | Change | 95% interval lower bound | Registered rule |
+|---|---:|---:|---|
+| Harder tools: exact tool-set accuracy (tool-set and tool-relevance rows) | +6.7 points | +1.7 | ≥ +5 and lower bound > 0 |
+| Document/rule decisions: accuracy (record joins, numeric/threshold, SQuAD2) | +16.1 points | +10.6 | lower bound > −3 |
+| Retention: pooled accuracy on 1,800 earlier-skill rows | +0.8 points | −0.3 | lower bound > −1.5 |
+| B-2 development set, primary score | +0.3 points | — | ≥ −1 |
+
+All three registered checks passed (10,000 paired bootstrap draws; rules fixed before training).
 
 These measurements support claims only about the named held-out sets.
 
