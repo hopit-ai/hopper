@@ -1,21 +1,23 @@
 # Hopper
 
-> **Research and demo use only.** This adapter is published for research and demonstration. Its training data included passages from RACE (via the `cais/mmlu` auxiliary set), which its authors release for non-commercial research only and whose terms extend to derived data. Do not use this adapter commercially. A version trained without these passages is in development.
+> **Research and demo use only (the Hopper and Hopper (G) adapters).** These adapters are published for research and demonstration. Its training data included passages from RACE (via the `cais/mmlu` auxiliary set), which its authors release for non-commercial research only and whose terms extend to derived data. Do not use these adapters commercially. Hopper 12B has no adapter and is not affected by this note.
 
-A decision server for **three published models**, all LoRA adapters on Qwen3.5-4B served by this same code:
-**Hopper**, built for [JevBench](https://benchmarkheaven.com/jev-models), and two versions of **Hopper (G)**, a
-general-purpose line built for the [Jev Decision Index](https://huggingface.co/spaces/multimodalart/jev-decision-index).
+A decision server for **four published models**, all served by this same code: **Hopper** and two versions of
+**Hopper (G)**, LoRA adapters on Qwen3.5-4B, and **Hopper 12B**, the frozen `google/gemma-4-12B-it` base model with
+this serving code and a locked readout map.
 
-## The three models
+## The four models
 
 | model | adapter (pinned revision) | what it is | run it with |
 | --- | --- | --- | --- |
-| **Hopper** | [`HopitAI/hopper`](https://huggingface.co/HopitAI/hopper) (weights unchanged since 1.0.0; release `v1.1.0` has the files) | the original JevBench model; the code releases 1.1.0 and 1.1.1 changed the calibration map and added long menus, not the weights | `hopper-serve --adapter HopitAI/hopper` |
-| **Hopper (G) 1.2** | [`HopitAI/hopper-g`](https://huggingface.co/HopitAI/hopper-g) @ `d60a1d6` (tag `g-1.2.0`) | general-purpose line, continued from Hopper 1.0 on a broader mix; the version on the Decision Index | download the revision, then `hopper-serve --adapter ./hopper-g` |
-| **Hopper (G) 1.3** (latest) | [`HopitAI/hopper-g`](https://huggingface.co/HopitAI/hopper-g) @ `8b4cd7c` (tag `g-1.3.0`) | continued from Hopper (G) 1.2 on new code-generated decision items; a disclosed, qualified release (see its model card) | download the revision, then `hopper-serve --adapter ./hopper-g` |
+| **Hopper** | [`HopitAI/hopper`](https://huggingface.co/HopitAI/hopper) (weights unchanged since 1.0.0; release `v1.1.0` has the files) | the original Hopper model; the code releases 1.1.0 and 1.1.1 changed the calibration map and added long menus, not the weights | `hopper-serve --adapter HopitAI/hopper` |
+| **Hopper (G) 1.2** | [`HopitAI/hopper-g`](https://huggingface.co/HopitAI/hopper-g) @ `d60a1d6` (tag `g-1.2.0`) | general-purpose line, continued from Hopper 1.0 on a broader mix | download the revision, then `hopper-serve --adapter ./hopper-g` |
+| **Hopper (G) 1.3** | [`HopitAI/hopper-g`](https://huggingface.co/HopitAI/hopper-g) @ `8b4cd7c` (tag `g-1.3.0`) | continued from Hopper (G) 1.2 on new code-generated decision items; a disclosed, qualified release (see its model card) | download the revision, then `hopper-serve --adapter ./hopper-g` |
+| **Hopper 12B** | none: frozen [`google/gemma-4-12B-it`](https://huggingface.co/google/gemma-4-12B-it) @ `707f0a3` (code tag `12b-1.0.0`) | the Gemma-4-12B-it base model, unchanged, with this serving code and a locked readout map | install tag `12b-1.0.0`, then `hopper-serve --base-loader gemma-4-12b-it` (see "Hopper 12B" below) |
 
-All three use the same prompt, readout, calibration map and wire format; only the adapter weights differ. Details and
-download commands for Hopper (G) are under "Hopper (G): the general-purpose line" below.
+The three adapters use the same prompt, readout, calibration map and wire format; only the adapter weights differ.
+Hopper 12B uses the same prompt, readout and wire format on a different base model, with its own readout map. Details
+are under "Hopper (G): the general-purpose line" and "Hopper 12B" below.
 
 ## Hopper 12B (trained) — draft
 
@@ -64,15 +66,16 @@ Code: Apache-2.0, the same licence as the base model. See `LICENSE` and `NOTICE`
 weights are offered for research and demo use only, because of the RACE training-data terms above
 (see `MODEL_CARD.md`, "Training data").
 
-## Where the models stand
+## Where the models have been submitted
 
-| model | weights | JevBench | Jev Decision Index |
-| --- | --- | --- | --- |
-| **Hopper** | [`HopitAI/hopper`](https://huggingface.co/HopitAI/hopper) | **59.43, #7** (v1.4.2.2, 27 Sep 2026; the measured row is 1.0.0): Intelligence 48.0, Calibration 79.1, Speed 86.8, Cost 58.7 | 1.1.1: **36.71, #12 of 49** (edition 0.2, 25 Sep 2026), then **39.67, #19 of 67** (edition 0.2.1); its row has since been replaced by Hopper (G) 1.2 |
-| **Hopper (G) 1.3** | [`HopitAI/hopper-g`](https://huggingface.co/HopitAI/hopper-g) @ `8b4cd7c` (tag `g-1.3.0`) | requested ([issue #112](https://github.com/fstandhartinger/jevbench/issues/112)), **not yet measured** | not yet scored |
-| **Hopper (G) 1.2** | [`HopitAI/hopper-g`](https://huggingface.co/HopitAI/hopper-g) @ `d60a1d6` | not measured (the request now asks for 1.3) | **40.77, #16 of 68** (edition 0.2.1, 27 Sep 2026); the highest of the 4B models, 0.07 ahead of Decider 4B. Complete self-scored run: [results](https://huggingface.co/datasets/HopitAI/hopper-g-decision-index-results) |
+| model | JevBench | Jev Decision Index |
+| --- | --- | --- |
+| **Hopper** | submitted ([issue #14](https://github.com/fstandhartinger/jevbench/issues/14)); measured row 1.0.0: **67.5, #15** on v1.5.4 (30 Sep 2026): Intelligence 49.9, Calibration 87.9, Speed 87.2, Cost 62.3 | 1.1.1 was submitted and scored **36.71** (edition 0.2) and **39.67** (edition 0.2.1); its row has since been replaced by Hopper (G) 1.2 |
+| **Hopper (G) 1.2** | requested in [issue #112](https://github.com/fstandhartinger/jevbench/issues/112), which was then switched to 1.3 | submitted: **40.77** (edition 0.2.1), from a complete self-scored run of the suite; results at [`HopitAI/hopper-g-decision-index-results`](https://huggingface.co/datasets/HopitAI/hopper-g-decision-index-results) |
+| **Hopper (G) 1.3** | submitted ([issue #112](https://github.com/fstandhartinger/jevbench/issues/112)), not yet measured | not submitted |
+| **Hopper 12B** | submitted ([issue #164](https://github.com/fstandhartinger/jevbench/issues/164)), not yet measured | not submitted |
 
-The official numbers are the boards' own, and both boards change as entrants are added: see the
+The official numbers and ranks are the boards' own and change as entrants are added: see the
 [JevBench board](https://benchmarkheaven.com/jev-models) and the
 [Decision Index](https://huggingface.co/spaces/multimodalart/jev-decision-index).
 
@@ -103,7 +106,7 @@ repository by passing it to `hopper-serve --map`.
 calibration map and long-menu shortlist, with different adapter weights published at
 [`HopitAI/hopper-g`](https://huggingface.co/HopitAI/hopper-g). Hopper itself (`HopitAI/hopper`) is unchanged.
 The current version is **Hopper (G) 1.3** (revision `8b4cd7c`, tag `g-1.3.0`); **1.2** stays at revision `d60a1d6`
-(tag `g-1.2.0`) and is the version on the Decision Index. The serving code is the same for both:
+(tag `g-1.2.0`) and is the version submitted to the Decision Index. The serving code is the same for both:
 
 ```sh
 # Hopper (G) 1.3
@@ -118,11 +121,32 @@ Every command below that takes `HopitAI/hopper` also takes this directory instea
 Docker image's `ADAPTER=` (mount the directory), `Decider(adapter=...)` and the in-process route's `--endpoint`.
 
 Hopper (G) continues from Hopper 1.0's adapter, so its weights carry the same research-and-demo terms (see `NOTICE`).
-Hopper (G) 1.2 was built as a general model and is not tuned for JevBench. On the Decision Index (edition 0.2.1) it
+Hopper (G) 1.2 is a general-purpose model. On the Decision Index (edition 0.2.1) it
 scores 40.77 from a complete, self-scored run of the suite; the results and scores are public at
 [`HopitAI/hopper-g-decision-index-results`](https://huggingface.co/datasets/HopitAI/hopper-g-decision-index-results).
 Hopper (G) 1.3 continues from 1.2 on new code-generated decision items; on our private held-out decision set it is
 +1.7 points over 1.2, below the bar we had set for it, and it passes our regression checks (see the model card).
+
+## Hopper 12B
+
+**Hopper 12B** is [`google/gemma-4-12B-it`](https://huggingface.co/google/gemma-4-12B-it) at revision
+`707f0a3b8a3c7ad586ed01e27eafbad8a27dd0f7`, unchanged (no fine-tuning, no adapter), served with this code from tag
+`12b-1.0.0`. Each decision is one forward pass with the thinking channel closed. The answer is a softmax over the
+option letters, then a locked readout map shipped in the package: per-menu-size position priors, then one temperature
+(T = 4.28). Questions with more than 26 options use the same long-menu shortlist as Hopper. The map was fitted and
+validated only on our own items.
+
+```sh
+pip install "git+https://github.com/hopit-ai/hopper@12b-1.0.0"
+hopper-serve --base-loader gemma-4-12b-it \
+  --readout-map "$(python -c 'import hopper_decisions, pathlib; print(pathlib.Path(hopper_decisions.__file__).parent / "maps/hopper-12b-readout.json")')" \
+  --port 8080
+```
+
+One 48 GB GPU is enough (bf16, about 24 GB of weights). On an L40S, through the package's HTTP route, we measured
+p50 0.094 s and p95 0.44 s on our own items. Licence: code Apache-2.0; the base weights are Apache-2.0 under Gemma's
+upstream terms and prohibited-use policy. The `--base-loader` option is on tag `12b-1.0.0`; the Hopper and Hopper (G)
+commands in this README are unchanged by it.
 
 ## Install and serve (RunPod, as tested)
 
