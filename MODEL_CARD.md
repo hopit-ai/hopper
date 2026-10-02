@@ -65,7 +65,7 @@ adapter does not change its terms.
 Hopper 12B (trained) is a separate model, not this adapter: a PEFT LoRA adapter for the frozen
 [`google/gemma-4-12B-it`](https://huggingface.co/google/gemma-4-12B-it) base at revision
 `707f0a3b8a3c7ad586ed01e27eafbad8a27dd0f7`, with a separately fitted readout map. It is published in this repository
-on the branch [`hopper-12b`](https://huggingface.co/HopitAI/hopper/tree/hopper-12b) (revision `{{HF_REVISION}}`), with
+on the branch [`hopper-12b`](https://huggingface.co/HopitAI/hopper/tree/hopper-12b) (revision `4b605f25eb903c2cf4d121040ffb097240b3bc37`), with
 its own model card; this `main` branch keeps the Qwen3.5-4B Hopper adapter unchanged. Its adapter and readout map are
 licensed Apache-2.0, and its training data does not include RACE, so the research-and-demo note above does not apply to
 it.
@@ -80,7 +80,7 @@ it.
 ```sh
 pip install "git+https://github.com/hopit-ai/hopper@12b-1.1.0"
 hopper-serve --base-loader gemma-4-12b-it \
-  --adapter HopitAI/hopper@{{HF_REVISION}} \
+  --adapter HopitAI/hopper@4b605f25eb903c2cf4d121040ffb097240b3bc37 \
   --readout-map "$(python -c 'import hopper_decisions, pathlib; print(pathlib.Path(hopper_decisions.__file__).parent / "maps/hopper-12b-trained-readout.json")')" \
   --port 8080
 ```

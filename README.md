@@ -15,7 +15,7 @@ own readout map.
 | **Hopper (G) 1.2** | [`HopitAI/hopper-g`](https://huggingface.co/HopitAI/hopper-g) @ `d60a1d6` (tag `g-1.2.0`) | general-purpose line, continued from Hopper 1.0 on a broader mix | download the revision, then `hopper-serve --adapter ./hopper-g` |
 | **Hopper (G) 1.3** | [`HopitAI/hopper-g`](https://huggingface.co/HopitAI/hopper-g) @ `8b4cd7c` (tag `g-1.3.0`) | continued from Hopper (G) 1.2 on new code-generated decision items; a disclosed, qualified release (see its model card) | download the revision, then `hopper-serve --adapter ./hopper-g` |
 | **Hopper 12B** | none: frozen [`google/gemma-4-12B-it`](https://huggingface.co/google/gemma-4-12B-it) @ `707f0a3` (code tag `12b-1.0.0`) | the Gemma-4-12B-it base model, unchanged, with this serving code and a locked readout map | install tag `12b-1.0.0`, then `hopper-serve --base-loader gemma-4-12b-it` (see "Hopper 12B" below) |
-| **Hopper 12B (trained)** | [`HopitAI/hopper`](https://huggingface.co/HopitAI/hopper/tree/hopper-12b), branch `hopper-12b` @ `{{HF_REVISION}}` (code tag `12b-1.1.0`) | a LoRA adapter (rank 32) on the same frozen Gemma-4-12B-it revision, served unmerged, with its own readout map; Apache-2.0 | install tag `12b-1.1.0`, then `hopper-serve --base-loader gemma-4-12b-it --adapter HopitAI/hopper@{{HF_REVISION}}` with its readout map (see "Hopper 12B (trained)" below) |
+| **Hopper 12B (trained)** | [`HopitAI/hopper`](https://huggingface.co/HopitAI/hopper/tree/hopper-12b), branch `hopper-12b` @ `4b605f25eb903c2cf4d121040ffb097240b3bc37` (code tag `12b-1.1.0`) | a LoRA adapter (rank 32) on the same frozen Gemma-4-12B-it revision, served unmerged, with its own readout map; Apache-2.0 | install tag `12b-1.1.0`, then `hopper-serve --base-loader gemma-4-12b-it --adapter HopitAI/hopper@4b605f25eb903c2cf4d121040ffb097240b3bc37` with its readout map (see "Hopper 12B (trained)" below) |
 
 The three Qwen3.5-4B adapters use the same prompt, readout, calibration map and wire format; only the adapter weights
 differ. Hopper 12B and Hopper 12B (trained) use the same prompt, readout and wire format on a different base model,
@@ -127,7 +127,7 @@ commands in this README are unchanged by it. Tag `12b-1.1.0` keeps this frozen p
 [`google/gemma-4-12B-it`](https://huggingface.co/google/gemma-4-12B-it) base at revision
 `707f0a3b8a3c7ad586ed01e27eafbad8a27dd0f7`, plus a PEFT LoRA adapter and a readout map fitted for that adapter. The
 adapter is published in [`HopitAI/hopper`](https://huggingface.co/HopitAI/hopper/tree/hopper-12b) on the branch
-`hopper-12b`, revision `{{HF_REVISION}}`; the repository's `main` branch still holds the Qwen3.5-4B Hopper adapter, which
+`hopper-12b`, revision `4b605f25eb903c2cf4d121040ffb097240b3bc37`; the repository's `main` branch still holds the Qwen3.5-4B Hopper adapter, which
 is unchanged. The serving code is tag `12b-1.1.0` (package version 1.2.0).
 
 - **Adapter:** rank 32, alpha 64, on the seven text projections `q_proj`, `k_proj`, `v_proj`, `o_proj`, `gate_proj`,
@@ -145,7 +145,7 @@ is unchanged. The serving code is tag `12b-1.1.0` (package version 1.2.0).
 ```sh
 pip install "git+https://github.com/hopit-ai/hopper@12b-1.1.0"
 hopper-serve --base-loader gemma-4-12b-it \
-  --adapter HopitAI/hopper@{{HF_REVISION}} \
+  --adapter HopitAI/hopper@4b605f25eb903c2cf4d121040ffb097240b3bc37 \
   --readout-map "$(python -c 'import hopper_decisions, pathlib; print(pathlib.Path(hopper_decisions.__file__).parent / "maps/hopper-12b-trained-readout.json")')" \
   --port 8080
 ```
@@ -155,7 +155,7 @@ hopper-serve --base-loader gemma-4-12b-it \
 file path; it does not look maps up by name. To check the files first, download the branch and serve the local copy:
 
 ```sh
-huggingface-cli download HopitAI/hopper --revision {{HF_REVISION}} --local-dir hopper-12b
+huggingface-cli download HopitAI/hopper --revision 4b605f25eb903c2cf4d121040ffb097240b3bc37 --local-dir hopper-12b
 (cd hopper-12b && shasum -a 256 -c SHA256SUMS)
 hopper-serve --base-loader gemma-4-12b-it --adapter ./hopper-12b \
   --readout-map ./hopper-12b/hopper-12b-trained-readout.json --port 8080

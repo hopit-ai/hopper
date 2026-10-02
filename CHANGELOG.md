@@ -1,14 +1,14 @@
 # Changes
 
-## Hopper 12B (trained) — 1.2.0 (tag 12b-1.1.0, {{RELEASE_DATE}})
+## Hopper 12B (trained) — 1.2.0 (tag 12b-1.1.0, 2026-10-02)
 
 A new model on the Gemma base loader: a PEFT LoRA adapter (rank 32, alpha 64) for the frozen `google/gemma-4-12B-it`
 at revision `707f0a3b8a3c7ad586ed01e27eafbad8a27dd0f7`, published in `HopitAI/hopper` on the branch `hopper-12b`
-(revision `{{HF_REVISION}}`; `main`, the Qwen3.5-4B Hopper adapter, is unchanged). Adapter and readout map:
+(revision `4b605f25eb903c2cf4d121040ffb097240b3bc37`; `main`, the Qwen3.5-4B Hopper adapter, is unchanged). Adapter and readout map:
 Apache-2.0, with the training datasets' attribution in `README.md` and on the branch's model card.
 
 - **`--adapter` on the Gemma base loader.** `hopper-serve --base-loader gemma-4-12b-it --adapter
-  HopitAI/hopper@{{HF_REVISION}} --readout-map <map>` loads the adapter as a separate low-rank path. It is never merged:
+  HopitAI/hopper@4b605f25eb903c2cf4d121040ffb097240b3bc37 --readout-map <map>` loads the adapter as a separate low-rank path. It is never merged:
   a bf16 merge changed 2.1% of top choices on 1,932 decisions. Without `--adapter`, the frozen Hopper 12B path is
   unchanged.
 - **A second readout map:** `hopper_decisions/maps/hopper-12b-trained-readout.json`
