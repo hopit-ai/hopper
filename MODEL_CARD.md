@@ -110,6 +110,8 @@ All three registered checks passed (10,000 paired bootstrap draws; rules fixed b
 
 These measurements support claims only about the named held-out sets.
 
+**Decision Index:** a complete run of edition 0.2.1 scores **47.52** (raw 59.99), submitted as its own row ([PR #63](https://github.com/apolinario/decision-index/pull/63); results at [`HopitAI/hopper-12b-decision-index-results`](https://huggingface.co/datasets/HopitAI/hopper-12b-decision-index-results)).
+
 **Licences and attribution.** The training data's own licences continue to apply to the data, and no training data is
 distributed with the adapter: CC BY-SA 4.0 for SNLI, ARC, HotpotQA and SQuAD2; CC BY 4.0 for CUAD, BANKING77, QASC and
 xLAM/APIGen (cited as APIGen, Liu et al., 2024, arXiv:2406.18518); CC BY 3.0 for CLINC150; Apache-2.0 for MAMS, ESCI,

@@ -46,7 +46,7 @@ is Apache-2.0, with the data attribution under "Hopper 12B (trained)" below.
 | **Hopper (G) 1.2** | requested in [issue #112](https://github.com/fstandhartinger/jevbench/issues/112), which was then switched to 1.3 | submitted: **40.77** (edition 0.2.1), from a complete self-scored run of the suite; results at [`HopitAI/hopper-g-decision-index-results`](https://huggingface.co/datasets/HopitAI/hopper-g-decision-index-results) |
 | **Hopper (G) 1.3** | requested in [issue #112](https://github.com/fstandhartinger/jevbench/issues/112), then withdrawn (3 Oct 2026) in favour of Hopper 12B (trained); not measured | not submitted |
 | **Hopper 12B** | submitted ([issue #164](https://github.com/fstandhartinger/jevbench/issues/164)), not yet measured; the request now asks for Hopper 12B (trained) in its place | not submitted |
-| **Hopper 12B (trained)** | requested in [issue #164](https://github.com/fstandhartinger/jevbench/issues/164) in place of Hopper 12B, not yet measured | not submitted |
+| **Hopper 12B (trained)** | requested in [issue #164](https://github.com/fstandhartinger/jevbench/issues/164) in place of Hopper 12B, not yet measured | submitted ([PR #63](https://github.com/apolinario/decision-index/pull/63)): **47.52** (edition 0.2.1), from a complete run of the suite on partner hardware, with eight benchmarks run by us; results at [`HopitAI/hopper-12b-decision-index-results`](https://huggingface.co/datasets/HopitAI/hopper-12b-decision-index-results). A separate row from Hopper (G) 1.2 |
 
 The official numbers and ranks are the boards' own and change as entrants are added: see the
 [JevBench board](https://benchmarkheaven.com/jev-models) and the
@@ -200,6 +200,8 @@ and retention.
 All three registered checks passed (10,000 paired bootstrap draws; rules fixed before training).
 
 These results describe our own held-out sets only. They are not benchmark results.
+
+**Decision Index:** a complete run of edition 0.2.1 scores **47.52** (raw 59.99), submitted as its own row ([PR #63](https://github.com/apolinario/decision-index/pull/63); per-row results and scores at [`HopitAI/hopper-12b-decision-index-results`](https://huggingface.co/datasets/HopitAI/hopper-12b-decision-index-results)).
 
 ### Licence and data attribution
 
