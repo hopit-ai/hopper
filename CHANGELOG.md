@@ -1,5 +1,17 @@
 # Changes
 
+## Hopper 12B serving fix — 1.2.1 (2026-10-06)
+
+- **Fix:** on some GPUs, prompts whose length is one more than a multiple of 32 tokens returned corrupted option
+  scores; the server now avoids reading from such passes. Answers for all other prompts are unchanged.
+- Applies to the Gemma base loader (`--base-loader gemma-4-12b-it`), frozen and with `--adapter`, including every
+  pass of a long-menu tournament. Such a prompt now gets one trailing pad token and its option letters are read at
+  the last prompt position, before the pad. Seen on an L40S (bf16, SDPA); CPU results were always correct.
+- New tests inject the fault on CPU and check that no letter read comes from an affected pass, that reads at
+  affected lengths equal the clean reads, and that reads at every other length are bit-identical to 1.2.0.
+
+The Hopper and Hopper (G) paths are unchanged.
+
 ## Hopper 12B (trained) — 1.2.0 (tag 12b-1.1.0, 2026-10-02)
 
 A new model on the Gemma base loader: a PEFT LoRA adapter (rank 32, alpha 64) for the frozen `google/gemma-4-12B-it`

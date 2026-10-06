@@ -17,6 +17,16 @@ BASE = "google/gemma-4-12B-it"
 REVISION = "707f0a3b8a3c7ad586ed01e27eafbad8a27dd0f7"
 NAME = "gemma-4-12b-it"
 LIMIT, K, RESIDUAL, SEED = len(prompt.LETTERS), 10, 0.05, 0
+# On some GPUs (seen on an L40S: bf16, SDPA, this base model) a forward pass whose length is one more than a
+# multiple of 32 tokens returns a corrupted last row, which is exactly the row the option letters are read from.
+# Such a prompt gets one trailing pad token and is read at the row before it; causal attention keeps the pad out
+# of that row. Every other length runs exactly as before.
+QUERY_TILE = 32
+
+
+def unsafe_length(length):
+    """True for a forward length whose last row some GPU attention kernels get wrong (1 mod 32)."""
+    return int(length) % QUERY_TILE == 1
 
 
 def _adapter_spec(value):
@@ -107,6 +117,8 @@ class FrozenDecider:
         self.device = device or getattr(model, "device", "cuda")
         self.attention = "sdpa"
         self.letter_ids = prompt.letter_token_ids(tokenizer)
+        pad = getattr(tokenizer, "pad_token_id", None)
+        self.pad_id = 0 if pad is None else int(pad)
         self.graph_status = self.graph_plan = self.graph_timing = {}
         self.graph_seconds, self.graph_bytes = 0.0, None
         self.kernels, self.slow_kernels, self.warm_seconds = {}, [], (0, 0.0)
@@ -142,10 +154,16 @@ class FrozenDecider:
         if isinstance(count, bool) or not 1 <= count <= LIMIT:
             raise ValueError(f"letter readout needs 1..{LIMIT} options, not {count!r}")
         import torch
-        tensor = torch.tensor([list(ids)], dtype=torch.long, device=self.device)
+        ids = list(ids)
         with torch.inference_mode():
-            logits = self.model(input_ids=tensor, use_cache=False, return_dict=True, logits_to_keep=1).logits[
-                0, -1, self.letter_ids[:count]].float()
+            if not unsafe_length(len(ids)):
+                tensor = torch.tensor([ids], dtype=torch.long, device=self.device)
+                logits = self.model(input_ids=tensor, use_cache=False, return_dict=True, logits_to_keep=1).logits[
+                    0, -1, self.letter_ids[:count]].float()
+            else:  # one trailing pad; read the last prompt position, the row before it
+                tensor = torch.tensor([ids + [self.pad_id]], dtype=torch.long, device=self.device)
+                logits = self.model(input_ids=tensor, use_cache=False, return_dict=True, logits_to_keep=2).logits[
+                    0, 0, self.letter_ids[:count]].float()
             return torch.softmax(logits, dim=-1).tolist()
 
     def _encode_checked(self, example):
@@ -206,4 +224,4 @@ class FrozenDecider:
         return self.score(req)["response"]
 
 
-__all__ = ["BASE", "REVISION", "NAME", "FrozenDecider", "chat_ids"]
+__all__ = ["BASE", "REVISION", "NAME", "QUERY_TILE", "FrozenDecider", "chat_ids", "unsafe_length"]
